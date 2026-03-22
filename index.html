@@ -425,6 +425,117 @@ async function flushSyncQueue() {
 function loadFromSheets() {
   if(!SHEETS_URL) return;
   notify('Синхронизация...', '');
+
+  // Метод 1: fetch с follow redirects (работает для Google Apps Script)
+  fetch(SHEETS_URL + '?action=getPoints', {
+    method: 'GET',
+    redirect: 'follow'
+  })
+  .then(r => {
+    if(!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  })
+  .then(text => {
+    // Убираем JSONP обёртку если есть
+    let json = text.trim();
+    if(json.startsWith('test(')) json = json.slice(5,-1);
+    const data = JSON.parse(json);
+    applySheetData(data);
+  })
+  .catch(err => {
+    console.warn('Fetch failed, trying JSONP...', err);
+    // Метод 2: JSONP fallback
+    const cbName = 'gsCb_' + Date.now();
+    window[cbName] = function(data) {
+      applySheetData(data);
+      const s = document.getElementById(cbName);
+      if(s) s.remove();
+      delete window[cbName];
+    };
+    const script = document.createElement('script');
+    script.id = cbName;
+    script.src = SHEETS_URL + '?action=getPoints&callback=' + cbName;
+    script.onerror = function() {
+      notify('Ошибка синхронизации — проверь подключение', 'error');
+      delete window[cbName]; this.remove();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function applySheetData(data) {
+  try {
+    if(!data || !Array.isArray(data.points)) {
+      notify('Нет данных от сервера', 'error'); return;
+    }
+    if(data.points.length === 0) {
+      notify('Таблица пуста', ''); return;
+    }
+    // Сохраняем локальные фото
+    const localPhotos = {};
+    points.forEach(p => { if(p.photos&&p.photos.length) localPhotos[p.id]=p.photos; });
+
+    // Объединяем: удалённые + локальные которых нет в таблице
+    const remoteIds = new Set(data.points.map(p=>String(p.id)));
+    const localOnly = points.filter(p=>!remoteIds.has(String(p.id)));
+    const merged = [...data.points, ...localOnly].map(p => {
+      if(localPhotos[p.id]) p.photos = localPhotos[p.id];
+      return p;
+    });
+    merged.sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+    points = merged;
+    localStorage.setItem('gw_points', JSON.stringify(points));
+    updateStats(); buildFilters(); applyFilters();
+    if(mapReady) drawMap();
+    notify('Синхронизировано: ' + points.length + ' точек', 'success');
+  } catch(err) {
+    console.error('applySheetData error:', err);
+    notify('Ошибка обработки данных', 'error');
+  }
+}
+
+
+async function syncToSheets(point) {
+  if(!SHEETS_URL) return;
+  try {
+    await fetch(SHEETS_URL, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'addPoint', point})
+    });
+    // После отправки подождём и загрузим актуальные данные
+    setTimeout(()=>loadFromSheets(), 2000);
+  } catch(e) {
+    console.warn('Sync error:', e);
+    // Сохраняем в очередь для повторной отправки
+    const queue = JSON.parse(localStorage.getItem('gw_sync_queue')||'[]');
+    queue.push(point);
+    localStorage.setItem('gw_sync_queue', JSON.stringify(queue));
+  }
+}
+
+// Отправка накопленной очереди
+async function flushSyncQueue() {
+  const queue = JSON.parse(localStorage.getItem('gw_sync_queue')||'[]');
+  if(!queue.length) return;
+  for(const point of queue) {
+    try {
+      await fetch(SHEETS_URL, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action:'addPoint', point})
+      });
+    } catch(e) { return; }
+  }
+  localStorage.removeItem('gw_sync_queue');
+  notify('Отправлено ' + queue.length + ' отложенных точек', 'success');
+}
+
+function loadFromSheets() {
+  if(!SHEETS_URL) return;
+  notify('Синхронизация...', '');
   // Используем JSONP — единственный надёжный способ для Google Apps Script
   const cbName = 'gsCallback_' + Date.now();
   window[cbName] = function(data) {
