@@ -130,8 +130,16 @@ input[type="file"]{display:none;}
 </head>
 <body>
 <div class="app-header">
-  <h1>Фиксация подземных вод</h1>
-  <p>Карьер — Локальная СК (Пулково-42)</p>
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+    <div>
+      <h1>Фиксация подземных вод</h1>
+      <p>Карьер — Локальная СК (Пулково-42)</p>
+    </div>
+    <div id="headerWorker" style="display:none;align-items:center;gap:6px;background:rgba(255,255,255,0.18);border-radius:20px;padding:4px 10px 4px 6px;cursor:pointer;flex-shrink:0" onclick="switchTab('home')">
+      <div id="headerAvatar" style="width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,0.35);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;color:white"></div>
+      <span id="headerWorkerName" style="font-size:12px;font-weight:600;color:white"></span>
+    </div>
+  </div>
 </div>
 <div class="tabs">
   <div class="tab active" onclick="switchTab('home')">Главная</div>
@@ -156,8 +164,9 @@ input[type="file"]{display:none;}
       <div class="stat-card"><div class="stat-num" id="statWorker">0</div><div class="stat-label">Мои точки</div></div>
     </div>
   </div>
-  <button class="btn btn-primary" onclick="switchTab('add')" id="addBtn" disabled>+ Добавить точку фиксации</button>
+  <button class="btn btn-primary" onclick="switchTab('add')">+ Добавить точку фиксации</button>
   <button class="btn btn-outline" style="margin-top:8px" onclick="exportExcel()">⬇ Скачать Excel (.xlsx)</button>
+
 </div>
 <div class="page" id="page-map">
   <div class="map-toolbar">
@@ -193,9 +202,15 @@ input[type="file"]{display:none;}
   </div>
 </div>
 <div class="page page-pad" id="page-add">
-  <div id="workerBarAdd" class="worker-bar" style="display:none">
-    <div class="av" id="wbAvatar">?</div>
-    <div><span id="wbName">—</span><small id="wbDate"></small></div>
+  <div class="card">
+    <div class="card-title">Сотрудник <span class="required">*</span></div>
+    <select id="fWorker" onchange="onFormWorkerChange('fWorker')" style="font-size:15px;font-weight:500">
+      <option value="">— выберите сотрудника —</option>
+      <option>Иванов А.В.</option>
+      <option>Петров С.Н.</option>
+      <option>Сидоров К.М.</option>
+      <option>Козлова Е.Р.</option>
+    </select>
   </div>
   <div class="card"><div class="card-title">GPS / Координаты</div>
     <div id="gpsStatus" class="gps-status gps-wait"><div class="gps-dot wait"></div><span>Определение координат...</span></div>
@@ -299,6 +314,16 @@ input[type="file"]{display:none;}
     <div class="modal-handle"></div>
     <div class="modal-title">Новая точка на карте</div>
     <div class="modal-subtitle" id="mfSubtitle">—</div>
+    <div class="field-group" style="margin-bottom:14px">
+      <label class="field-label">Сотрудник <span class="required">*</span></label>
+      <select id="mfWorker" onchange="onFormWorkerChange('mfWorker')" style="font-size:15px;font-weight:500">
+        <option value="">— выберите сотрудника —</option>
+        <option>Иванов А.В.</option>
+        <option>Петров С.Н.</option>
+        <option>Сидоров К.М.</option>
+        <option>Козлова Е.Р.</option>
+      </select>
+    </div>
     <div class="coord-box" style="margin-bottom:16px">
       <div class="coord-row"><span class="coord-label">X локальный</span><span class="coord-value" id="mfX" style="color:var(--blue)">—</span></div>
       <div class="coord-row"><span class="coord-label">Y локальный</span><span class="coord-value" id="mfY" style="color:var(--blue)">—</span></div>
@@ -355,6 +380,43 @@ input[type="file"]{display:none;}
 <div class="notification" id="notification"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
+// ===== GOOGLE SHEETS SYNC =====
+// Вставь свой URL после настройки Google Apps Script
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbymm2xg_7BHZ0uU6KZlG1SQ3dljPeAOS5JBP9jRx0WNkH9GvON1p5PXaqTgE6odGqcj/exec';
+
+async function syncToSheets(point) {
+  if(!SHEETS_URL) return;
+  try {
+    await fetch(SHEETS_URL, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'addPoint', point})
+    });
+  } catch(e) { console.warn('Sync error:', e); }
+}
+
+async function loadFromSheets() {
+  if(!SHEETS_URL) return;
+  try {
+    const r = await fetch(SHEETS_URL + '?action=getPoints');
+    const data = await r.json();
+    if(data && Array.isArray(data.points)) {
+      // Merge: добавляем точки которых нет локально
+      const localIds = new Set(points.map(p=>p.id));
+      const newPts = data.points.filter(p=>!localIds.has(p.id));
+      if(newPts.length > 0) {
+        points = [...newPts, ...points].sort((a,b)=>new Date(b.date)-new Date(a.date));
+        localStorage.setItem('gw_points', JSON.stringify(points));
+        updateStats(); buildFilters(); applyFilters();
+        if(mapReady) drawMap();
+        notify('Загружено '+newPts.length+' новых точек', 'success');
+      }
+    }
+  } catch(e) { console.warn('Load error:', e); }
+}
+
+
 const DOMEN_POLYGONS = {
   'Domen-1':{color:'rgba(59,130,246,0.22)',stroke:'rgba(59,130,246,0.9)',pts:[[46057.6,16690.64],[46058.19,16757.12],[46178.03,16907.13],[46334.84,17024.05],[46544.21,17109.62],[46639.99,17176.56],[46726.32,17236.89],[46951.92,17256.2],[47106.56,17257.93],[47243.87,17235.9],[47289.64,17185.91],[47301.75,17172.18],[47289.76,17146.71],[47239.54,17064.51],[47201.33,17006.31],[47172.52,16953.29],[47142.24,16880.81],[47130.0,16846.28],[47127.31,16840.77],[47124.21,16837.0],[47120.11,16823.71],[47119.62,16822.2],[47119.13,16820.68],[47107.09,16830.5],[47101.54,16809.47],[47089.64,16811.27],[47084.15,16792.89],[47072.68,16790.36],[47062.88,16756.61],[47051.71,16731.02],[47043.25,16716.08],[47035.97,16713.32],[47035.02,16712.19],[47034.71,16711.25],[47032.07,16707.62],[47031.08,16707.19],[47030.09,16706.76],[47030.0,16706.58],[47028.8,16705.63],[47026.84,16705.13],[47026.06,16705.03],[47007.61,16681.46],[47003.95,16675.41],[47000.51,16670.85],[47002.87,16656.75],[47001.42,16654.65],[46996.21,16647.97],[46993.92,16647.72],[46990.61,16648.42],[46975.66,16630.15],[46968.74,16629.24],[46965.52,16625.69],[46950.65,16607.62],[46941.26,16595.89],[46940.4,16594.9],[46939.52,16591.5],[46926.76,16572.92],[46924.01,16568.7],[46918.87,16558.81],[46914.77,16549.88],[46912.36,16543.29],[46910.75,16537.07],[46909.92,16534.27],[46909.82,16533.64],[46907.55,16533.25],[46906.71,16533.83],[46904.02,16535.65],[46902.85,16536.38],[46901.07,16536.99],[46894.68,16539.17],[46889.81,16540.65],[46882.96,16542.88],[46881.33,16543.51],[46875.75,16546.23],[46869.61,16548.86],[46863.12,16552.42],[46833.31,16569.67],[46804.83,16582.87],[46789.24,16589.1],[46779.29,16592.71],[46762.62,16603.91],[46736.94,16618.83],[46736.94,16618.83],[46714.14,16631.13],[46652.28,16659.36],[46583.96,16674.96],[46551.64,16678.17],[46524.78,16684.52],[46495.49,16683.31],[46471.17,16692.82],[46445.82,16685.81],[46422.37,16681.65],[46402.48,16680.39],[46394.13,16678.79],[46358.06,16680.29],[46283.07,16706.81],[46274.05,16710.03],[46243.87,16717.95],[46213.68,16714.64],[46182.07,16721.49],[46156.8,16722.63]]},
   'Domen-2':{color:'rgba(34,197,94,0.20)',stroke:'rgba(34,197,94,0.9)',pts:[[46907.55,16533.25],[46909.86,16533.61],[46959.54,16560.16],[46989.08,16577.66],[46994.44,16579.16],[46998.1,16579.79],[47007.78,16585.72],[47023.72,16590.09],[47032.28,16595.12],[47049.75,16600.83],[47058.45,16606.65],[47070.3,16610.09],[47070.07,16610.57],[47069.89,16611.46],[47071.04,16610.46],[47073.37,16612.25],[47076.48,16614.83],[47085.1,16620.42],[47090.85,16624.15],[47094.7,16625.85],[47111.18,16637.36],[47116.77,16640.96],[47132.75,16651.94],[47140.2,16695.82],[47144.06,16717.96],[47151.77,16752.53],[47158.55,16778.58],[47169.75,16811.63],[47190.46,16848.48],[47201.15,16867.64],[47221.73,16910.91],[47230.5,16931.17],[47238.73,16945.67],[47244.18,16953.75],[47246.05,16954.84],[47250.44,16959.62],[47251.95,16958.41],[47254.49,16959.09],[47270.61,16902.09],[47280.4,16576.02],[47215.16,16174.95],[47027.58,15997.25],[46766.62,15888.01],[46631.22,15889.0],[46587.54,15891.7],[46603.7,15911.06],[46616.29,15927.84],[46616.45,15943.55],[46623.3,15952.23],[46626.5,15955.71],[46634.76,15966.29],[46638.81,15972.82],[46641.66,15976.76],[46641.84,15989.15],[46642.95,15997.78],[46663.82,16025.48],[46661.76,16031.72],[46677.69,16053.47],[46685.07,16061.95],[46693.71,16075.0],[46702.67,16087.11],[46712.17,16099.84],[46727.52,16122.37],[46739.03,16140.03],[46751.45,16159.63],[46766.91,16184.62],[46771.96,16193.57],[46769.14,16198.48],[46776.0,16211.43],[46771.95,16220.98],[46786.66,16249.14],[46783.94,16253.61],[46782.79,16258.29],[46791.62,16274.98],[46790.11,16285.27],[46797.99,16300.93],[46794.61,16323.14],[46804.53,16343.62],[46803.25,16344.44],[46801.29,16346.89],[46797.92,16349.06],[46793.45,16352.64],[46797.02,16362.1],[46804.11,16381.85],[46807.32,16392.71],[46809.8,16404.57],[46811.38,16416.15],[46812.15,16426.68],[46812.25,16429.12],[46813.64,16429.01],[46815.36,16428.56],[46819.43,16428.54],[46820.25,16428.47],[46821.11,16432.49],[46828.85,16430.12],[46829.82,16436.29],[46830.93,16441.1],[46831.72,16444.54],[46833.49,16449.39],[46834.96,16453.44],[46836.18,16455.97],[46856.13,16462.43],[46861.09,16474.65],[46870.23,16477.17],[46874.73,16490.03],[46883.98,16491.96],[46886.79,16500.08],[46889.49,16508.13],[46892.2,16516.79],[46898.32,16519.8],[46902.84,16523.82],[46905.79,16532.9]]},
@@ -399,7 +461,24 @@ const OFF_X=5800000,OFF_Y=12500000;
 let mapScale=1,mapOffX=0,mapOffY=0,isPanning=false,panStart={x:0,y:0},panOrigin={x:0,y:0};
 let mapMode='view',pendingMapPoint=null,canvas,ctx,mapW=0,mapH=0,mapEventsSetup=false,hoverPoint=null;
 
+
+// Восстановить выбранного сотрудника
+const savedWorker=localStorage.getItem('gw_worker');
+if(savedWorker){
+  selectedWorker=savedWorker;
+  updateHeaderWorker();
+  setTimeout(()=>{
+    ['fWorker','mfWorker'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value=savedWorker;
+    });
+  },100);
+}
 updateStats();buildFilters();applyFilters();startGPS();
+// Авто-синхронизация при загрузке
+setTimeout(()=>loadFromSheets(), 2000);
+// Периодическая синхронизация каждые 60 секунд
+setInterval(()=>loadFromSheets(), 60000);
 
 function switchTab(name){
   const names=['home','map','add','list','convert'];
@@ -413,17 +492,37 @@ function switchTab(name){
 function selectWorker(el,name){
   document.querySelectorAll('.worker-btn').forEach(b=>b.classList.remove('selected'));
   el.classList.add('selected');selectedWorker=name;
-  document.getElementById('addBtn').disabled=false;updateStats();notify('Выбран: '+name,'success');
+  localStorage.setItem('gw_worker',name);
+  document.getElementById('addBtn').disabled=false;
+  updateHeaderWorker();
+  updateStats();
+  notify('Выбран: '+name,'success');
 }
-function updateWorkerBar(){
-  const bar=document.getElementById('workerBarAdd');
-  if(selectedWorker){bar.style.display='flex';
+function onFormWorkerChange(selectId){
+  const val = document.getElementById(selectId).value;
+  if(val){
+    selectedWorker = val;
+    localStorage.setItem('gw_worker', val);
+    updateHeaderWorker();
+    // Синхронизируем оба селекта
+    ['fWorker','mfWorker'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.value=val;
+    });
+  }
+}
+function updateHeaderWorker(){
+  const hw=document.getElementById('headerWorker');
+  if(selectedWorker){
     const ini=selectedWorker.split(' ').map(p=>p[0]).join('').slice(0,2).toUpperCase();
-    document.getElementById('wbAvatar').textContent=ini;
-    document.getElementById('wbName').textContent=selectedWorker;
-    document.getElementById('wbDate').textContent=new Date().toLocaleDateString('ru-RU',{day:'2-digit',month:'long',year:'numeric'});
-  } else bar.style.display='none';
+    document.getElementById('headerAvatar').textContent=ini;
+    document.getElementById('headerWorkerName').textContent=selectedWorker;
+    hw.style.display='flex';
+  } else {
+    hw.style.display='none';
+  }
 }
+function updateWorkerBar(){ updateHeaderWorker(); ['fWorker','mfWorker'].forEach(id=>{const el=document.getElementById(id);if(el&&selectedWorker) el.value=selectedWorker;}); }
 function startGPS(){
   if(!navigator.geolocation){setGPSStatus('err','GPS не поддерживается');return;}
   setGPSStatus('wait','Определение координат...');
@@ -670,6 +769,8 @@ function handleMapClick(clientX,clientY){
   document.getElementById('mfDomenHint').style.display=ad?'block':'none';
   if(ad) document.getElementById('mfDomenHint').textContent='Автоопределено: '+ad;
   mapPhotos=[];renderMapPhotos();
+  const mfw2=document.getElementById('mfWorker');
+  if(mfw2&&selectedWorker) mfw2.value=selectedWorker;
   document.getElementById('mapFormOverlay').classList.add('open');
   document.getElementById('mapFormModal').scrollTop=0;
 }
@@ -704,20 +805,30 @@ function collectPoint(num,worker,xLoc,yLoc,prefix,photos,src){
     photos:[...photos],source:src,shift:getShift(now),weekKey:getWeekLabel(now),monthKey:getMonthKey(now)};
 }
 function savePoint(){
-  if(!selectedWorker){notify('Выберите сотрудника','error');return;}
+  const fw=document.getElementById('fWorker');
+  if(fw&&fw.value) selectedWorker=fw.value;
+  if(!selectedWorker){notify('Выберите сотрудника','error');document.getElementById('fWorker')?.focus();return;}
   const num=document.getElementById('fPointNum').value.trim();
   if(!num){notify('Введите номер точки','error');return;}
   let xLoc=null,yLoc=null;
   if(currentLat!=null){const[xSK,ySK]=wgs84ToSK42(currentLat,currentLon);xLoc=xSK-OFF_X;yLoc=ySK-OFF_Y;}
-  points.unshift(collectPoint(num,selectedWorker,xLoc,yLoc,'f',formPhotos,'form'));
-  persist();clearForm();notify('Точка '+num+' сохранена!','success');switchTab('list');
+  const np=collectPoint(num,selectedWorker,xLoc,yLoc,'f',formPhotos,'form');
+  points.unshift(np);
+  persist();
+  syncToSheets(np);
+  clearForm();notify('Точка '+num+' сохранена!','success');switchTab('list');
 }
 function saveMapPoint(){
   if(!pendingMapPoint) return;
+  const mfw=document.getElementById('mfWorker');
+  if(mfw&&mfw.value) selectedWorker=mfw.value;
   const num=document.getElementById('mfNum').value.trim();
   if(!num){notify('Введите номер точки','error');document.getElementById('mfNum').focus();return;}
-  points.unshift(collectPoint(num,selectedWorker||'Не выбран',pendingMapPoint.x,pendingMapPoint.y,'mf',mapPhotos,'map'));
-  persist();pendingMapPoint=null;document.getElementById('mapFormOverlay').classList.remove('open');drawMap();notify('Точка '+num+' сохранена!','success');
+  if(!selectedWorker){notify('Выберите сотрудника','error');mfw?.focus();return;}
+  const nmp=collectPoint(num,selectedWorker||'Не выбран',pendingMapPoint.x,pendingMapPoint.y,'mf',mapPhotos,'map');
+  points.unshift(nmp);
+  persist();
+  syncToSheets(nmp);pendingMapPoint=null;document.getElementById('mapFormOverlay').classList.remove('open');drawMap();notify('Точка '+num+' сохранена!','success');
 }
 function cancelMapPoint(){pendingMapPoint=null;document.getElementById('mapFormOverlay').classList.remove('open');drawMap();}
 function persist(){localStorage.setItem('gw_points',JSON.stringify(points));updateStats();buildFilters();applyFilters();}
