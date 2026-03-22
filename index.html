@@ -383,7 +383,7 @@ input[type="file"]{display:none;}
 <script>
 // ===== GOOGLE SHEETS SYNC =====
 // Вставь свой URL после настройки Google Apps Script
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyewoysf-g5UiONp8liboP8o8yaXdZLdYsD9-opImnKfDtZZGqYGAOoiM8I7Z-p1tOS/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxZuZcUJXw5mvoIQ_Y-Ob8v9MbnjNzQW7yc8-khZTlQ-IUXPijpNRfEK4B4Q6YRoWml/exec';
 
 async function syncToSheets(point) {
   if(!SHEETS_URL) return;
@@ -394,27 +394,82 @@ async function syncToSheets(point) {
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({action:'addPoint', point})
     });
-  } catch(e) { console.warn('Sync error:', e); }
+    // После отправки подождём и загрузим актуальные данные
+    setTimeout(()=>loadFromSheets(), 2000);
+  } catch(e) {
+    console.warn('Sync error:', e);
+    // Сохраняем в очередь для повторной отправки
+    const queue = JSON.parse(localStorage.getItem('gw_sync_queue')||'[]');
+    queue.push(point);
+    localStorage.setItem('gw_sync_queue', JSON.stringify(queue));
+  }
 }
 
-async function loadFromSheets() {
+// Отправка накопленной очереди
+async function flushSyncQueue() {
+  const queue = JSON.parse(localStorage.getItem('gw_sync_queue')||'[]');
+  if(!queue.length) return;
+  for(const point of queue) {
+    try {
+      await fetch(SHEETS_URL, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({action:'addPoint', point})
+      });
+    } catch(e) { return; }
+  }
+  localStorage.removeItem('gw_sync_queue');
+  notify('Отправлено ' + queue.length + ' отложенных точек', 'success');
+}
+
+function loadFromSheets() {
   if(!SHEETS_URL) return;
-  try {
-    const r = await fetch(SHEETS_URL + '?action=getPoints');
-    const data = await r.json();
-    if(data && Array.isArray(data.points)) {
-      // Merge: добавляем точки которых нет локально
-      const localIds = new Set(points.map(p=>p.id));
-      const newPts = data.points.filter(p=>!localIds.has(p.id));
-      if(newPts.length > 0) {
-        points = [...newPts, ...points].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  notify('Синхронизация...', '');
+  // Используем JSONP — единственный надёжный способ для Google Apps Script
+  const cbName = 'gsCallback_' + Date.now();
+  window[cbName] = function(data) {
+    try {
+      if(data && Array.isArray(data.points) && data.points.length > 0) {
+        // Полная замена — берём все точки из таблицы как источник правды
+        // Сохраняем фото из локального хранилища (они не синхронизируются)
+        const localPhotos = {};
+        points.forEach(p => { if(p.photos&&p.photos.length) localPhotos[p.id]=p.photos; });
+        
+        // Мержим: объединяем локальные и удалённые точки
+        const remoteIds = new Set(data.points.map(p=>String(p.id)));
+        const localOnly = points.filter(p=>!remoteIds.has(String(p.id)));
+        const merged = [...data.points, ...localOnly].map(p=>{
+          if(localPhotos[p.id]) p.photos = localPhotos[p.id];
+          return p;
+        });
+        merged.sort((a,b)=>new Date(b.date)-new Date(a.date));
+        
+        const added = merged.length - points.length;
+        points = merged;
         localStorage.setItem('gw_points', JSON.stringify(points));
         updateStats(); buildFilters(); applyFilters();
         if(mapReady) drawMap();
-        notify('Загружено '+newPts.length+' новых точек', 'success');
+        if(added > 0) notify('Загружено +' + data.points.length + ' точек из таблицы', 'success');
+        else notify('Синхронизировано: ' + points.length + ' точек', '');
+      } else {
+        notify('Нет новых точек', '');
       }
-    }
-  } catch(e) { console.warn('Load error:', e); }
+    } catch(err) { console.warn('Sync parse error:', err); }
+    // Убираем script тег
+    const s = document.getElementById(cbName);
+    if(s) s.remove();
+    delete window[cbName];
+  };
+  
+  const script = document.createElement('script');
+  script.id = cbName;
+  script.src = SHEETS_URL + '?action=getPoints&callback=' + cbName;
+  script.onerror = function() {
+    notify('Ошибка синхронизации', 'error');
+    delete window[cbName];
+    this.remove();
+  };
+  document.head.appendChild(script);
 }
 
 
@@ -477,7 +532,7 @@ if(savedWorker){
 }
 updateStats();buildFilters();applyFilters();startGPS();
 // Авто-синхронизация при загрузке
-setTimeout(()=>loadFromSheets(), 2000);
+setTimeout(()=>{flushSyncQueue();loadFromSheets();}, 2000);
 // Периодическая синхронизация каждые 60 секунд
 setInterval(()=>loadFromSheets(), 60000);
 
