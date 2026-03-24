@@ -240,6 +240,8 @@ async function savePointFromForm() {
     } else {
       await Points.create(data);
     }
+    // Перечитываем с сервера чтобы список был актуальным
+    await Points.load();
     renderPointsList();
     switchTab('points');
     Diagnostics.set('pointsLoaded', Points.getList().length);
@@ -257,6 +259,7 @@ async function confirmDelete(id) {
   showLoader('Удаление...');
   try {
     await Points.remove(id);
+    await Points.load();
     renderPointsList();
     Diagnostics.set('pointsLoaded', Points.getList().length);
   } catch (err) {
