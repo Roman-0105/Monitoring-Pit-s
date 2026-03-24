@@ -81,8 +81,7 @@ function switchTab(name) {
   document.querySelectorAll('.page').forEach(p => {
     p.classList.toggle('active', p.id === 'page-' + name);
   });
-  if (name === 'add') {
-    AppState.editingPointId = null;
+  if (name === 'add' && !AppState.editingPointId) {
     resetForm();
   }
   if (name === 'diag') {
@@ -192,21 +191,26 @@ function startEdit(id) {
   if (!p) return;
   AppState.editingPointId = id;
 
-  setField('f-num',       p.pointNumber);
-  setField('f-worker',    p.worker);
-  setField('f-lat',       p.lat != null ? p.lat : '');
-  setField('f-lon',       p.lon != null ? p.lon : '');
-  setField('f-intensity', p.intensity);
-  setField('f-flowrate',  p.flowRate != null ? p.flowRate : '');
-  setField('f-color',     p.waterColor);
-  setField('f-wall',      p.wall);
-  setField('f-domain',    p.domain);
-  setField('f-status',    p.status);
-  setField('f-comment',   p.comment);
-
-  document.getElementById('form-title').textContent = 'Редактирование #' + p.pointNumber;
-  document.getElementById('btn-save').textContent = 'Сохранить изменения';
+  // Сначала переключаем вкладку, потом заполняем поля
   switchTab('add');
+
+  // requestAnimationFrame гарантирует что DOM уже отображён
+  requestAnimationFrame(() => {
+    setField('f-num',       p.pointNumber);
+    setField('f-worker',    p.worker);
+    setField('f-lat',       p.lat != null ? p.lat : '');
+    setField('f-lon',       p.lon != null ? p.lon : '');
+    setField('f-intensity', p.intensity);
+    setField('f-flowrate',  p.flowRate != null ? p.flowRate : '');
+    setField('f-color',     p.waterColor);
+    setField('f-wall',      p.wall);
+    setField('f-domain',    p.domain);
+    setField('f-status',    p.status);
+    setField('f-comment',   p.comment);
+
+    document.getElementById('form-title').textContent = 'Редактирование #' + p.pointNumber;
+    document.getElementById('btn-save').textContent = 'Сохранить изменения';
+  });
 }
 
 async function savePointFromForm() {
