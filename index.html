@@ -524,7 +524,7 @@ input[type="file"]{display:none;}
 <script>
 // ===== GOOGLE SHEETS SYNC =====
 // Вставь свой URL после настройки Google Apps Script
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbx-dxWYbnJihuwZiO8PUy1x7sByRFlXLKo2WBmLEcBfQQ2jkEE8NEYwkTGFdi2DFkE/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwCJPne4zqGQHWz3WA76Zc3euoS7gtiUdwRIVRepnjSQY9mjrJbYGLAoLCYpaoksPCy/exec';
 
 async function syncToSheets(point, photos) {
   if(!SHEETS_URL) return;
@@ -1627,7 +1627,8 @@ async function uploadScheme() {
 
     console.log('Upload result:', result);
 
-    if(result.status !== 'ok') {
+    // no-cors не возвращает реальный ответ — считаем успехом если запрос прошёл
+    if(result && result.status === 'error') {
       throw new Error(result.message || 'Ошибка сервера');
     }
 
@@ -1693,45 +1694,26 @@ function compressImage(file, maxSize, quality) {
   });
 }
 
-// POST + JSONP — получаем реальный ответ от Apps Script
+// Простая отправка на сервер без ожидания ответа
 function postWithJsonp(data) {
   return new Promise((resolve, reject) => {
-    const cbName = 'postCb_' + Date.now();
     const timeout = setTimeout(() => {
-      delete window[cbName];
-      const s = document.getElementById(cbName);
-      if(s) s.remove();
-      reject(new Error('Таймаут сервера (30 сек). Проверь подключение.'));
-    }, 30000);
+      reject(new Error('Таймаут (15 сек). Проверь подключение.'));
+    }, 15000);
 
-    window[cbName] = function(result) {
-      clearTimeout(timeout);
-      delete window[cbName];
-      const s = document.getElementById(cbName);
-      if(s) s.remove();
-      resolve(result);
-    };
-
-    // Сначала POST с данными
     fetch(SHEETS_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({...data, callbackName: cbName})
+      body: JSON.stringify(data)
     }).then(() => {
-      // Через 2 сек запрашиваем результат через JSONP
-      setTimeout(() => {
-        const script = document.createElement('script');
-        script.id = cbName;
-        script.src = SHEETS_URL + '?action=getCallback&cbName=' + cbName + '&callback=' + cbName;
-        script.onerror = () => {
-          clearTimeout(timeout);
-          delete window[cbName]; script.remove();
-          reject(new Error('Ошибка соединения с сервером'));
-        };
-        document.head.appendChild(script);
-      }, 3000);
-    }).catch(reject);
+      clearTimeout(timeout);
+      // Считаем успехом — no-cors не даёт читать ответ но если fetch не упал — данные ушли
+      resolve({status:'ok'});
+    }).catch(err => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 
