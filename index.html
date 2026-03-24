@@ -524,7 +524,7 @@ input[type="file"]{display:none;}
 <script>
 // ===== GOOGLE SHEETS SYNC =====
 // Вставь свой URL после настройки Google Apps Script
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyCTcIh5j4v1jW4TQozyPj4qwTDbfUMob3fU90cyBr_3cC2D5T7F5zrXiYH_PqJhZOt/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbx-dxWYbnJihuwZiO8PUy1x7sByRFlXLKo2WBmLEcBfQQ2jkEE8NEYwkTGFdi2DFkE/exec';
 
 async function syncToSheets(point, photos) {
   if(!SHEETS_URL) return;
@@ -1598,58 +1598,54 @@ async function uploadScheme() {
   if(!weekVal) { notify('Выберите неделю', 'error'); return; }
   if(!selectedSchemeFile) { notify('Выберите файл схемы', 'error'); return; }
 
-  const btn = document.getElementById('uploadSchemeBtn');
+  const btn    = document.getElementById('uploadSchemeBtn');
   const status = document.getElementById('uploadSchemeStatus');
   btn.disabled = true;
   btn.textContent = '⏳ Загрузка...';
-  status.textContent = 'Конвертация изображения...';
+  status.style.color = 'var(--text-sub)';
+  status.textContent = 'Сжатие изображения...';
 
   try {
-    // Читаем файл как base64
-    const base64 = await new Promise((res, rej) => {
-      const reader = new FileReader();
-      reader.onload = e => res(e.target.result.split(',')[1]);
-      reader.onerror = rej;
-      reader.readAsDataURL(selectedSchemeFile);
-    });
+    // Сжимаем изображение перед отправкой (макс 2000px, качество 0.85)
+    const base64 = await compressImage(selectedSchemeFile, 2000, 0.85);
+    const sizeMB = (base64.length * 0.75 / 1024 / 1024).toFixed(1);
+    status.textContent = 'Отправка на сервер (' + sizeMB + ' MB)...';
+    console.log('Scheme size after compression:', sizeMB, 'MB');
 
-    status.textContent = 'Отправка на сервер...';
-
-    // Отправляем в Apps Script → Google Drive
-    const response = await fetch(SHEETS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'uploadScheme',
-        week: weekVal,
-        fileName: selectedSchemeFile.name,
-        fileData: base64,
-        mimeType: selectedSchemeFile.type || 'image/png'
-      })
-    });
-
-    // no-cors не даёт читать ответ — используем JSONP для подтверждения
-    status.textContent = 'Сохранено! Обновление списка...';
-    
-    // Сохраняем локально чтобы сразу использовать
-    const localUrl = URL.createObjectURL(selectedSchemeFile);
-    const existing = schemes.findIndex(s => s.week === weekVal);
-    if(existing >= 0) {
-      schemes[existing] = { week: weekVal, url: localUrl, name: selectedSchemeFile.name, local: true };
-    } else {
-      schemes.push({ week: weekVal, url: localUrl, name: selectedSchemeFile.name, local: true });
+    if(parseFloat(sizeMB) > 30) {
+      throw new Error('Файл слишком большой (' + sizeMB + ' MB). Уменьши разрешение PNG до 2000px.');
     }
+
+    // Отправляем через JSONP — получаем реальный ответ от сервера
+    const result = await postWithJsonp({
+      action: 'uploadScheme',
+      week: weekVal,
+      fileName: selectedSchemeFile.name,
+      fileData: base64,
+      mimeType: 'image/jpeg'  // всегда JPEG после сжатия
+    });
+
+    console.log('Upload result:', result);
+
+    if(result.status !== 'ok') {
+      throw new Error(result.message || 'Ошибка сервера');
+    }
+
+    // Успех — сохраняем локально и применяем
+    const localUrl = URL.createObjectURL(selectedSchemeFile);
+    const driveUrl = result.url || localUrl;
+
+    const existing = schemes.findIndex(s => s.week === weekVal);
+    const schemeObj = { week: weekVal, url: driveUrl, localUrl, name: selectedSchemeFile.name };
+    if(existing >= 0) schemes[existing] = schemeObj;
+    else schemes.push(schemeObj);
     schemes.sort((a,b) => b.week.localeCompare(a.week));
-    
+
     updateSchemeSelect();
     renderSchemesList();
-    
-    // Если это текущая неделя — сразу применяем
-    const curWeek = getCurrentWeekValue();
-    if(weekVal === curWeek) {
-      setActiveScheme(localUrl);
-    }
+
+    // Если текущая неделя — применяем сразу
+    if(weekVal === getCurrentWeekValue()) setActiveScheme(localUrl);
 
     // Сброс формы
     selectedSchemeFile = null;
@@ -1657,21 +1653,86 @@ async function uploadScheme() {
     document.getElementById('schemeFileInput').value = '';
     btn.textContent = '⬆ Загрузить схему';
     btn.disabled = true;
-    status.textContent = '✓ Схема загружена успешно!';
     status.style.color = 'var(--green)';
-
+    status.textContent = '✓ Схема загружена! ' + (result.url ? 'Сохранена на Drive.' : '');
     notify('Схема для ' + weekVal + ' загружена!', 'success');
 
-    // Обновляем список из таблицы через 3 сек
-    setTimeout(loadSchemesFromSheets, 3000);
+    setTimeout(loadSchemesFromSheets, 4000);
 
   } catch(err) {
     console.error('Upload error:', err);
-    status.textContent = 'Ошибка: ' + err.message;
     status.style.color = 'var(--red)';
+    status.textContent = '✗ Ошибка: ' + err.message;
     btn.disabled = false;
     btn.textContent = '⬆ Загрузить схему';
+    notify('Ошибка загрузки: ' + err.message, 'error');
   }
+}
+
+// Сжатие изображения через canvas
+function compressImage(file, maxSize, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = function() {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if(w > maxSize || h > maxSize) {
+        if(w > h) { h = Math.round(h * maxSize / w); w = maxSize; }
+        else       { w = Math.round(w * maxSize / h); h = maxSize; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve(dataUrl.split(',')[1]);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// POST + JSONP — получаем реальный ответ от Apps Script
+function postWithJsonp(data) {
+  return new Promise((resolve, reject) => {
+    const cbName = 'postCb_' + Date.now();
+    const timeout = setTimeout(() => {
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if(s) s.remove();
+      reject(new Error('Таймаут сервера (30 сек). Проверь подключение.'));
+    }, 30000);
+
+    window[cbName] = function(result) {
+      clearTimeout(timeout);
+      delete window[cbName];
+      const s = document.getElementById(cbName);
+      if(s) s.remove();
+      resolve(result);
+    };
+
+    // Сначала POST с данными
+    fetch(SHEETS_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({...data, callbackName: cbName})
+    }).then(() => {
+      // Через 2 сек запрашиваем результат через JSONP
+      setTimeout(() => {
+        const script = document.createElement('script');
+        script.id = cbName;
+        script.src = SHEETS_URL + '?action=getCallback&cbName=' + cbName + '&callback=' + cbName;
+        script.onerror = () => {
+          clearTimeout(timeout);
+          delete window[cbName]; script.remove();
+          reject(new Error('Ошибка соединения с сервером'));
+        };
+        document.head.appendChild(script);
+      }, 3000);
+    }).catch(reject);
+  });
 }
 
 function loadSchemesFromSheets() {
