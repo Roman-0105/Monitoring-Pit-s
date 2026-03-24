@@ -517,7 +517,7 @@ input[type="file"]{display:none;}
 <script>
 // ===== GOOGLE SHEETS SYNC =====
 // Вставь свой URL после настройки Google Apps Script
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbw6GHz-WrUmV0QQ3xZJV0tEmqS21WulrifZwGV6G9LDmkfwEjrssN4eSdelJwbEdh7H/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwQtQjO4UM9lp53vVscLjS29FTYy4vKdM84JyjfrC-7r0b-DkuZNRmu98-9uwnrDT6x/exec';
 
 async function syncToSheets(point, photos) {
   if(!SHEETS_URL) return;
@@ -1098,6 +1098,7 @@ applyTheme(appSettings.theme || 'light');
 // Авто-синхронизация при загрузке
 setTimeout(()=>{
   flushSyncQueue();
+  loadWorkersFromSheets();
   if(appSettings.autoSync) loadFromSheets();
 }, 2000);
 // Периодическая синхронизация каждые 60 секунд
@@ -1846,34 +1847,53 @@ function setActiveScheme(url) {
 }
 
 function tryLoadImage(url, callback) {
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => callback(url);
-  img.onerror = () => {
-    // Если не загрузилась — пробуем альтернативный формат Drive
-    if(url.includes('drive.google.com')) {
-      const fileId = url.match(/id=([^&]+)/);
-      if(fileId) {
-        // Пробуем thumbnail формат
-        const altUrl = 'https://drive.google.com/thumbnail?id=' + fileId[1] + '&sz=w2000';
-        const img2 = new Image();
-        img2.crossOrigin = 'anonymous';
-        img2.onload = () => callback(altUrl);
-        img2.onerror = () => {
-          // Пробуем через content
-          const altUrl2 = 'https://lh3.googleusercontent.com/d/' + fileId[1];
-          const img3 = new Image();
-          img3.onload = () => callback(altUrl2);
-          img3.onerror = () => callback(null);
-          img3.src = altUrl2;
-        };
-        img2.src = altUrl;
-        return;
-      }
+  // Если это Drive ссылка — загружаем через Apps Script прокси (обход CORS)
+  if(url.includes('drive.google.com') && SHEETS_URL) {
+    const fileId = url.match(/id=([^&]+)/);
+    if(fileId) {
+      loadImageViaProxy(fileId[1], callback);
+      return;
     }
+  }
+  // Для локальных URL (blob:) — загружаем напрямую
+  const img = new Image();
+  img.onload = () => callback(url);
+  img.onerror = () => callback(null);
+  img.src = url;
+}
+
+function loadImageViaProxy(fileId, callback) {
+  const cbName = 'imgCb_' + Date.now();
+  const timeout = setTimeout(() => {
+    delete window[cbName];
+    const s = document.getElementById(cbName);
+    if(s) s.remove();
+    callback(null);
+  }, 15000);
+
+  window[cbName] = function(data) {
+    clearTimeout(timeout);
+    const s = document.getElementById(cbName);
+    if(s) s.remove();
+    delete window[cbName];
+    if(data && data.status === 'ok' && data.base64) {
+      const dataUrl = 'data:' + data.mimeType + ';base64,' + data.base64;
+      callback(dataUrl);
+    } else {
+      callback(null);
+    }
+  };
+
+  const script = document.createElement('script');
+  script.id = cbName;
+  script.src = SHEETS_URL + '?action=getImage&fileId=' + fileId + '&callback=' + cbName;
+  script.onerror = () => {
+    clearTimeout(timeout);
+    delete window[cbName];
+    script.remove();
     callback(null);
   };
-  img.src = url;
+  document.head.appendChild(script);
 }
 
 function syncWeekFilter(week) {
@@ -1934,6 +1954,46 @@ function saveWorkers() {
   renderWorkerGrid();
   renderWorkerSelects();
   renderWorkerSettingsList();
+  // Синхронизируем список на сервер
+  syncWorkersToSheets();
+}
+
+function syncWorkersToSheets() {
+  if(!SHEETS_URL) return;
+  fetch(SHEETS_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({action: 'saveWorkers', workers: workers})
+  }).catch(e => console.warn('Workers sync error:', e));
+}
+
+function loadWorkersFromSheets() {
+  if(!SHEETS_URL) return;
+  const cbName = 'workersCb_' + Date.now();
+  window[cbName] = function(data) {
+    const s = document.getElementById(cbName);
+    if(s) s.remove();
+    delete window[cbName];
+    if(data && Array.isArray(data.workers) && data.workers.length > 0) {
+      workers = data.workers;
+      localStorage.setItem('gw_workers', JSON.stringify(workers));
+      renderWorkerGrid();
+      renderWorkerSelects();
+      renderWorkerSettingsList();
+      // Восстанавливаем выбранного сотрудника
+      const saved = localStorage.getItem('gw_worker');
+      if(saved && workers.includes(saved)) {
+        selectedWorker = saved;
+        updateHeaderWorker();
+      }
+    }
+  };
+  const script = document.createElement('script');
+  script.id = cbName;
+  script.src = SHEETS_URL + '?action=getWorkers&callback=' + cbName;
+  script.onerror = () => { delete window[cbName]; script.remove(); };
+  document.head.appendChild(script);
 }
 
 function getInitials(name) {
