@@ -941,6 +941,8 @@ function getWeekLabel(d){const dt=new Date(d),j=new Date(dt.getFullYear(),0,1);r
 function getMonthKey(d){const dt=new Date(d);return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');}
 
 let points=JSON.parse(localStorage.getItem('gw_points')||'[]');
+let workers = JSON.parse(localStorage.getItem('gw_workers') || 'null') || ['Иванов А.В.', 'Петров С.Н.', 'Сидоров К.М.', 'Козлова Е.Р.'];
+let MAP_IMG_BASE64 = '';
 
 // ===== НАСТРОЙКИ =====
 let appSettings = {
@@ -1940,12 +1942,11 @@ function renderSchemesList() {
 }
 
 // Сохраняем оригинальный src базовой карты
-let MAP_IMG_BASE64 = '';
+// MAP_IMG_BASE64 объявлен вверху
 
 
 // ===== СОТРУДНИКИ =====
 const DEFAULT_WORKERS = ['Иванов А.В.', 'Петров С.Н.', 'Сидоров К.М.', 'Козлова Е.Р.'];
-let workers = JSON.parse(localStorage.getItem('gw_workers') || 'null') || [...DEFAULT_WORKERS];
 
 function saveWorkers() {
   localStorage.setItem('gw_workers', JSON.stringify(workers));
