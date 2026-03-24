@@ -497,8 +497,8 @@ input[type="file"]{display:none;}
     <p class="hint" style="margin-bottom:12px">Добавляй, редактируй и удаляй сотрудников. Изменения применяются на всех устройствах после синхронизации.</p>
     <div id="workerSettingsList" style="margin-bottom:12px"></div>
     <div style="display:flex;gap:8px;margin-top:8px">
-      <input type="text" id="newWorkerInput" placeholder="Фамилия И.О." style="font-size:14px;padding:9px 12px;flex:1" onkeydown="if(event.key==='Enter')addWorker()">
-      <button onclick="addWorker()" style="padding:9px 16px;background:var(--blue);color:white;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">+ Добавить</button>
+      <input type="text" id="newWorkerInput" placeholder="Фамилия И.О." style="font-size:14px;padding:9px 12px;flex:1">
+      <button id="addWorkerBtn" style="padding:9px 16px;background:var(--blue);color:white;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap">+ Добавить</button>
     </div>
   </div>
 
@@ -517,7 +517,7 @@ input[type="file"]{display:none;}
 <script>
 // ===== GOOGLE SHEETS SYNC =====
 // Вставь свой URL после настройки Google Apps Script
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwQtQjO4UM9lp53vVscLjS29FTYy4vKdM84JyjfrC-7r0b-DkuZNRmu98-9uwnrDT6x/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxMzYSTw7JgHnjCGy2F5uKdKfu9nnqQ6CEg3tiZXw70uZgLFyJLWIslm1tedLxCwpV2/exec';
 
 async function syncToSheets(point, photos) {
   if(!SHEETS_URL) return;
@@ -1089,10 +1089,8 @@ setTimeout(()=>{
 // Загружаем настройки
 loadSettings();
 // Инициализируем список сотрудников
-setTimeout(()=>{
-  renderWorkerGrid();
-  renderWorkerSelects();
-}, 150);
+renderWorkerGrid();
+renderWorkerSelects();
 // Применяем тему
 applyTheme(appSettings.theme || 'light');
 // Авто-синхронизация при загрузке
@@ -1965,13 +1963,23 @@ function syncWorkersToSheets() {
     mode: 'no-cors',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({action: 'saveWorkers', workers: workers})
+  }).then(() => {
+    console.log('Workers synced:', workers);
   }).catch(e => console.warn('Workers sync error:', e));
 }
 
 function loadWorkersFromSheets() {
   if(!SHEETS_URL) return;
   const cbName = 'workersCb_' + Date.now();
+  const timeout = setTimeout(() => {
+    const s = document.getElementById(cbName);
+    if(s) s.remove();
+    delete window[cbName];
+    console.warn('Workers load timeout');
+  }, 10000);
+
   window[cbName] = function(data) {
+    clearTimeout(timeout);
     const s = document.getElementById(cbName);
     if(s) s.remove();
     delete window[cbName];
@@ -1981,18 +1989,25 @@ function loadWorkersFromSheets() {
       renderWorkerGrid();
       renderWorkerSelects();
       renderWorkerSettingsList();
-      // Восстанавливаем выбранного сотрудника
       const saved = localStorage.getItem('gw_worker');
       if(saved && workers.includes(saved)) {
         selectedWorker = saved;
         updateHeaderWorker();
+      } else if(workers.length > 0 && !selectedWorker) {
+        // Не выбираем автоматически — пусть сам выберет
       }
+      console.log('Workers loaded:', workers);
     }
   };
   const script = document.createElement('script');
   script.id = cbName;
   script.src = SHEETS_URL + '?action=getWorkers&callback=' + cbName;
-  script.onerror = () => { delete window[cbName]; script.remove(); };
+  script.onerror = () => {
+    clearTimeout(timeout);
+    delete window[cbName];
+    script.remove();
+    console.warn('Workers load error - using local');
+  };
   document.head.appendChild(script);
 }
 
@@ -2003,13 +2018,26 @@ function getInitials(name) {
 function renderWorkerGrid() {
   const grid = document.getElementById('workerGrid');
   if(!grid) return;
-  grid.innerHTML = workers.map(w => {
+  grid.innerHTML = workers.map((w,i) => {
     const ini = getInitials(w);
     const isSelected = w === selectedWorker;
-    return `<div class="worker-btn ${isSelected?'selected':''}" onclick="selectWorkerByName('${w.replace(/'/g,"\'")}')">
+    return `<div class="worker-btn ${isSelected?'selected':''}" data-worker="${i}">
       <div class="avatar">${ini}</div>${w}
     </div>`;
   }).join('');
+  // Вешаем обработчики через JS (не через inline onclick)
+  grid.querySelectorAll('.worker-btn').forEach((btn, i) => {
+    btn.addEventListener('click', () => selectWorkerByName(workers[i]));
+  });
+  // Кнопка добавить сотрудника
+  const addBtn = document.getElementById('addWorkerBtn');
+  if(addBtn && !addBtn._bound) {
+    addBtn._bound = true;
+    addBtn.addEventListener('click', addWorker);
+    document.getElementById('newWorkerInput')?.addEventListener('keydown', e => {
+      if(e.key === 'Enter') addWorker();
+    });
+  }
 }
 
 function renderWorkerSelects() {
@@ -2033,10 +2061,17 @@ function renderWorkerSettingsList() {
   el.innerHTML = workers.map((w, i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="width:32px;height:32px;border-radius:50%;background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${getInitials(w)}</div>
-      <input type="text" value="${w}" id="workerEdit_${i}" style="flex:1;font-size:14px;padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text-main)" onchange="editWorker(${i}, this.value)">
-      <button onclick="deleteWorker(${i})" style="width:32px;height:32px;border-radius:50%;border:none;background:var(--red-light);color:var(--red);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>
+      <input type="text" value="${w}" data-idx="${i}" class="worker-edit-input" style="flex:1;font-size:14px;padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-input);color:var(--text-main)">
+      <button data-idx="${i}" class="worker-del-btn" style="width:32px;height:32px;border-radius:50%;border:none;background:var(--red-light);color:var(--red);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0">×</button>
     </div>
   `).join('');
+  // Обработчики через JS
+  el.querySelectorAll('.worker-edit-input').forEach(inp => {
+    inp.addEventListener('change', function() { editWorker(parseInt(this.dataset.idx), this.value); });
+  });
+  el.querySelectorAll('.worker-del-btn').forEach(btn => {
+    btn.addEventListener('click', function() { deleteWorker(parseInt(this.dataset.idx)); });
+  });
 }
 
 function selectWorkerByName(name) {
