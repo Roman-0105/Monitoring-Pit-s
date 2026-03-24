@@ -361,3 +361,77 @@ html, body {
   outline: none;
   border-color: var(--blue);
 }
+
+/* ── Photo upload ────────────────────────────────────── */
+.photo-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--gray-50);
+  border: 1.5px dashed var(--gray-400);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--gray-800);
+  cursor: pointer;
+  margin-top: 6px;
+  transition: border-color .15s, background .15s;
+}
+.photo-pick-btn:hover {
+  border-color: var(--blue);
+  background: var(--gray-100);
+}
+.form-hint {
+  font-size: 11px;
+  color: var(--gray-600);
+  margin-top: 4px;
+}
+.photo-preview {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+.photo-preview img {
+  width: 100%;
+  max-width: 300px;
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-200);
+  display: block;
+}
+.photo-preview--existing img {
+  opacity: .8;
+}
+.photo-label {
+  display: block;
+  font-size: 11px;
+  color: var(--gray-600);
+  margin-top: 3px;
+}
+.photo-error {
+  font-size: 12px;
+  color: var(--gray-600);
+  padding: 8px;
+}
+.photo-remove {
+  position: absolute;
+  top: 4px; right: 4px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,.55);
+  color: white;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.point-card__photo {
+  font-size: 12px;
+  color: var(--blue);
+  cursor: pointer;
+  margin-top: 2px;
+}

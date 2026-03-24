@@ -123,6 +123,7 @@ function renderPointsList() {
         ${p.intensity ? `<div>💧 ${p.intensity}${p.flowRate != null ? ' · ' + p.flowRate + ' л/с' : ''}</div>` : ''}
         ${p.domain ? `<div>📍 ${p.domain}</div>` : ''}
         ${p.comment ? `<div class="point-card__comment">${p.comment}</div>` : ''}
+        ${p.photoUrls && p.photoUrls[0] ? `<div class="point-card__photo" data-url="${p.photoUrls[0]}">📷 Фото</div>` : ''}
       </div>
       <div class="point-card__actions">
         <button class="btn btn-sm btn-outline" onclick="startEdit('${p.id}')">✏️ Изменить</button>
@@ -171,16 +172,18 @@ function initForms() {
     });
   }
 
-  // Кнопка GPS
   const gpsBtn = document.getElementById('btn-gps');
   if (gpsBtn) {
     gpsBtn.addEventListener('click', getGPS);
   }
+
+  Photos.initPhotoInput('f-photo', 'f-photo-preview');
 }
 
 function resetForm() {
   const form = document.getElementById('point-form');
   if (form) form.reset();
+  Photos.clearInput('f-photo', 'f-photo-preview');
   document.getElementById('form-title').textContent = 'Новая точка';
   document.getElementById('btn-save').textContent = 'Сохранить';
   AppState.editingPointId = null;
@@ -210,6 +213,19 @@ function startEdit(id) {
 
     document.getElementById('form-title').textContent = 'Редактирование #' + p.pointNumber;
     document.getElementById('btn-save').textContent = 'Сохранить изменения';
+
+    // Показываем текущее фото если есть
+    const preview = document.getElementById('f-photo-preview');
+    if (preview) {
+      if (p.photoUrls && p.photoUrls[0]) {
+        preview.innerHTML = \`<div class="photo-preview photo-preview--existing">
+          <img src="\${p.photoUrls[0]}" alt="фото" onerror="this.parentNode.innerHTML='<span class=\\'photo-error\\'>Фото загружается...</span>'">
+          <span class="photo-label">Текущее фото</span>
+        </div>\`;
+      } else {
+        preview.innerHTML = '';
+      }
+    }
   });
 }
 
@@ -235,12 +251,27 @@ async function savePointFromForm() {
 
   showLoader('Сохранение...');
   try {
+    let savedPoint;
     if (AppState.editingPointId) {
-      await Points.update(AppState.editingPointId, data);
+      savedPoint = await Points.update(AppState.editingPointId, data);
     } else {
-      await Points.create(data);
+      savedPoint = await Points.create(data);
     }
-    // Перечитываем с сервера чтобы список был актуальным
+
+    // Загружаем фото если выбрано
+    const photoFile = Photos.getFile('f-photo');
+    if (photoFile && savedPoint && savedPoint.id) {
+      showLoader('Загрузка фото...');
+      try {
+        await Photos.upload(photoFile, savedPoint.id);
+      } catch (photoErr) {
+        console.warn('[Photo upload]', photoErr.message);
+        // Не блокируем — точка уже сохранена
+      }
+      Photos.clearInput('f-photo', 'f-photo-preview');
+    }
+
+    // Перечитываем с сервера
     await Points.load();
     renderPointsList();
     switchTab('points');
