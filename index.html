@@ -32,10 +32,10 @@
     </div>
   </div>
 
-  <!-- Page: Add / Edit point -->
+  <!-- Page: Add point (только добавление, не редактирование) -->
   <div class="page" id="page-add">
-    <h2 class="section-title" id="form-title">Новая точка</h2>
-    <form id="point-form">
+    <h2 class="section-title">Новая точка</h2>
+    <form id="add-form">
 
       <div class="form-row">
         <div class="form-group">
@@ -50,7 +50,6 @@
         </div>
       </div>
 
-      <!-- GPS -->
       <div class="form-group">
         <label class="form-label">Координаты</label>
         <div class="form-row">
@@ -139,10 +138,125 @@
         <p class="form-hint">Будет сжато до 1600px перед отправкой</p>
       </div>
 
-      <button type="submit" class="btn btn-primary btn-full" id="btn-save">
-        Сохранить
+      <button type="submit" class="btn btn-primary btn-full">
+        Сохранить точку
       </button>
     </form>
+  </div>
+
+  <!-- Модальное окно редактирования точки -->
+  <div id="edit-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-title" id="edit-modal-title">Редактирование</span>
+        <button class="modal-close" id="edit-modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="edit-form">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="e-num">Номер точки *</label>
+              <input class="form-input" id="e-num" type="text" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="e-worker">Сотрудник</label>
+              <select class="form-select" id="e-worker">
+                <option value="">— выберите —</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Координаты</label>
+            <div class="form-row">
+              <input class="form-input" id="e-lat" type="number" step="any" placeholder="Широта">
+              <input class="form-input" id="e-lon" type="number" step="any" placeholder="Долгота">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="e-intensity">Интенсивность</label>
+              <select class="form-select" id="e-intensity">
+                <option value="">—</option>
+                <option>Слабая (капёж)</option>
+                <option>Умеренная</option>
+                <option>Сильная (поток)</option>
+                <option>Очень сильная</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="e-flowrate">Дебит, л/с</label>
+              <input class="form-input" id="e-flowrate" type="number" step="any" min="0">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="e-color">Цвет воды</label>
+              <select class="form-select" id="e-color">
+                <option value="">—</option>
+                <option>Прозрачная</option>
+                <option>Слабожелтоватая</option>
+                <option>Мутная</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="e-status">Статус</label>
+              <select class="form-select" id="e-status">
+                <option value="Новая">Новая</option>
+                <option value="Активная">Активная</option>
+                <option value="Иссякает">Иссякает</option>
+                <option value="Пересохла">Пересохла</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="e-wall">Борт</label>
+              <select class="form-select" id="e-wall">
+                <option value="">—</option>
+                <option>Северо-восточный</option>
+                <option>Северо-западный</option>
+                <option>Юго-восточный</option>
+                <option>Юго-западный</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="e-domain">Домен</label>
+              <select class="form-select" id="e-domain">
+                <option value="">—</option>
+                <option>Domen-1</option>
+                <option>Domen-2</option>
+                <option>Domen-3</option>
+                <option>Domen-4</option>
+                <option>Domen-5</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="e-comment">Комментарий</label>
+            <textarea class="form-textarea" id="e-comment"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="e-photo">Фото</label>
+            <div id="e-photo-preview"></div>
+            <label class="photo-pick-btn" for="e-photo">
+              📷 Заменить фото
+              <input type="file" id="e-photo" accept="image/*" capture="environment" style="display:none">
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-full">
+            Сохранить изменения
+          </button>
+        </form>
+      </div>
+    </div>
   </div>
 
   <!-- Page: Workers -->
