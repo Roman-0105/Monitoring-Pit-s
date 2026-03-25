@@ -146,7 +146,8 @@ function loadDriveImage(driveUrl) {
   if (!driveUrl) return Promise.resolve(null);
 
   // Если уже в кэше — отдаём сразу
-  if (_imageCache[driveUrl]) return Promise.resolve(_imageCache[driveUrl]);
+  // Кэш отключён — всегда грузим свежее для актуальности
+  // if (_imageCache[driveUrl]) return Promise.resolve(_imageCache[driveUrl]);
 
   var match = driveUrl.match(/id=([^&]+)/);
   if (!match) return Promise.resolve(driveUrl); // не Drive — отдаём как есть

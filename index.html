@@ -245,10 +245,15 @@
           <div class="form-group">
             <label class="form-label" for="e-photo">Фото</label>
             <div id="e-photo-preview"></div>
-            <label class="photo-pick-btn" for="e-photo">
-              📷 Заменить фото
-              <input type="file" id="e-photo" accept="image/*" capture="environment" style="display:none">
-            </label>
+            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+              <label class="photo-pick-btn" for="e-photo">
+                📷 Заменить фото
+                <input type="file" id="e-photo" accept="image/*" capture="environment" style="display:none">
+              </label>
+              <button type="button" id="e-delete-photo-btn"
+                style="display:none;padding:9px 14px;border:1.5px solid var(--red);border-radius:6px;background:none;color:var(--red);font-size:13px;font-weight:600;cursor:pointer"
+                onclick="deletePointPhoto()">🗑 Удалить фото</button>
+            </div>
           </div>
 
           <button type="submit" class="btn btn-primary btn-full">

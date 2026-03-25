@@ -176,11 +176,16 @@ const Api = (() => {
     return data.ok === true;
   }
 
+  async function deletePhoto(pointId) {
+    await post({ action: 'deletePhoto', pointId });
+    return true;
+  }
+
   return {
     getPoints, getWorkers, getSchemes,
     createPoint, updatePoint, deletePoint,
     saveWorker, deleteWorker,
-    uploadPhoto, uploadScheme,
+    uploadPhoto, uploadScheme, deletePhoto,
     getImage, ping,
   };
 })();

@@ -385,10 +385,46 @@ function openEditModal(id) {
     }
   }
 
-  if (typeof Photos !== 'undefined') Photos.clearInput('e-photo', 'e-photo-preview-new');
+  if (typeof Photos !== 'undefined') Photos.clearInput('e-photo', 'e-photo-preview');
+
+  // Показываем/скрываем кнопку удаления фото
+  var delPhotoBtn = document.getElementById('e-delete-photo-btn');
+  if (delPhotoBtn) {
+    delPhotoBtn.style.display = (p.photoUrls && p.photoUrls[0]) ? 'block' : 'none';
+  }
 
   document.getElementById('edit-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
+}
+
+function deletePointPhoto() {
+  if (!AppState.editingPointId) return;
+  if (!confirm('Удалить фото этой точки?')) return;
+  var id = AppState.editingPointId;
+  var p = Points.getById(id);
+  if (!p) return;
+
+  showLoader('Удаление фото...');
+
+  // Очищаем preview сразу
+  var preview = document.getElementById('e-photo-preview');
+  if (preview) preview.innerHTML = '';
+  var delBtn = document.getElementById('e-delete-photo-btn');
+  if (delBtn) delBtn.style.display = 'none';
+
+  // Отправляем на сервер
+  Api.deletePhoto(id).catch(function(e) { console.warn('deletePhoto:', e); });
+
+  // Обновляем локально
+  Points.update(id, { photoUrls: [] }).then(function() {
+    return Points.load();
+  }).then(function() {
+    renderPointsList();
+    hideLoader();
+  }).catch(function(err) {
+    hideLoader();
+    console.warn(err);
+  });
 }
 
 function closeEditModal() {
