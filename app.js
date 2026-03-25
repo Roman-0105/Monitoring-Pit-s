@@ -4,7 +4,7 @@
  */
 
 window.APP_CONFIG = {
-  SCRIPT_URL:       'https://script.google.com/macros/s/AKfycbxTV9f7gHMC7iYktKznRMdoocDVZ6CF8_G00WfOFxxeP7ztMmY2CBgchgc3-XgRCDev/exec',
+  SCRIPT_URL:       'https://script.google.com/macros/s/AKfycbwqVC_gbeApWNHcCkEyo88Nhzy71LjthobICzdR5PNsGkpVUapETyDQKLsvYihwP6zT/exec',
   SYNC_INTERVAL_MS: 30000,
 };
 
