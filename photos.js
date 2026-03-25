@@ -1,210 +1,147 @@
 /**
- * photos.js — загрузка фото в Google Drive и отображение.
+ * photos.js — загрузка, замена и отображение фото.
  *
- * Поток:
- *   1. Пользователь выбирает файл
- *   2. compress() → base64 JPEG ≤ 1600px
- *   3. Api.uploadPhoto() → POST на Apps Script → Drive → URL
- *   4. URL сохраняется в точке через Points.update()
- *   5. Отображение: через прокси Api.getImage() (обход CORS)
+ * Все функции внутри замыкания Photos.
+ * Нет глобальных переменных. Нет дублирования.
  */
 
-const Photos = (() => {
+var Photos = (function() {
 
-  // ── Сжатие изображения ────────────────────────────────
+  // ── Сжатие ───────────────────────────────────────────────
 
-  function compress(file, maxSize = 1600, quality = 0.85) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(file);
-
-      img.onload = () => {
+  function compress(file, maxSize, quality) {
+    maxSize  = maxSize  || 1600;
+    quality  = quality  || 0.85;
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function() {
         URL.revokeObjectURL(url);
-
-        let w = img.width;
-        let h = img.height;
-
+        var w = img.width;
+        var h = img.height;
         if (w > maxSize || h > maxSize) {
           if (w >= h) { h = Math.round(h * maxSize / w); w = maxSize; }
           else        { w = Math.round(w * maxSize / h); h = maxSize; }
         }
-
-        const canvas = document.createElement('canvas');
+        var canvas = document.createElement('canvas');
         canvas.width  = w;
         canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-
-        const dataUrl = canvas.toDataURL('image/jpeg', quality);
-        const base64  = dataUrl.split(',')[1];
-        const sizeMB  = (base64.length * 0.75 / 1024 / 1024).toFixed(2);
-        console.log('[Photos] сжато: ' + w + '×' + h + ', ' + sizeMB + ' MB');
-        resolve(base64);
+        var dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl.split(',')[1]);
       };
-
-      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Ошибка загрузки изображения')); };
+      img.onerror = function() {
+        URL.revokeObjectURL(url);
+        reject(new Error('Ошибка загрузки изображения'));
+      };
       img.src = url;
     });
   }
 
-  // ── Загрузка в Drive ──────────────────────────────────
+  // ── Загрузка / атомарная замена ──────────────────────────
 
   /**
-   * Загружает фото и возвращает URL.
-   * pointId нужен для имени файла и обновления записи в Sheets.
+   * Загружает фото для точки. Если фото уже есть — сервер
+   * автоматически удаляет старое и сохраняет только новый URL.
+   * Возвращает Promise<string|null> — новый driveUrl.
    */
-  async function upload(file, pointId) {
+  function uploadAndReplace(file, pointId) {
     Diagnostics.set('photoStatus', 'uploading');
-
-    try {
-      const base64   = await compress(file);
-      const fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
-
-      await Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
-
-      // Перечитываем точку чтобы получить актуальный photoUrls
-      // (Apps Script сам дописал URL в строку)
-      await new Promise(r => setTimeout(r, 2000));
-      const points = await Api.getPoints();
-      const p = points.find(x => x.id === pointId);
-      const url = p && p.photoUrls && p.photoUrls[0] ? p.photoUrls[0] : null;
-
+    return compress(file).then(function(base64) {
+      var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
+      return Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
+    }).then(function() {
+      // Ждём 3 сек и читаем актуальный URL из Sheets
+      return new Promise(function(r) { setTimeout(r, 3000); });
+    }).then(function() {
+      return Api.getPoints();
+    }).then(function(points) {
+      var p   = points.find(function(x) { return x.id === pointId; });
+      var url = (p && p.photoUrls && p.photoUrls[0]) ? p.photoUrls[0] : null;
       Diagnostics.set('photoStatus', url ? 'uploaded' : 'error');
       return url;
-
-    } catch (err) {
+    }).catch(function(err) {
       Diagnostics.setError('photo', err.message);
       Diagnostics.set('photoStatus', 'error');
       throw err;
-    }
+    });
   }
 
-  // ── Отображение фото ──────────────────────────────────
+  // ── Прокси-загрузка для отображения ─────────────────────
 
   /**
-   * Загружает изображение через прокси и возвращает data URL.
-   * Используется для отображения фото с Drive (обход CORS).
+   * Загружает изображение через Apps Script (обход CORS Drive).
+   * Возвращает Promise<dataUrl|null>.
    */
-  async function loadForDisplay(driveUrl) {
-    const match = driveUrl.match(/id=([^&]+)/);
-    if (!match) return driveUrl; // не Drive ссылка — отдаём как есть
-
-    try {
-      const { base64, mimeType } = await Api.getImage(match[1]);
-      return 'data:' + mimeType + ';base64,' + base64;
-    } catch (err) {
-      console.warn('[Photos] loadForDisplay error:', err.message);
-      return null;
-    }
+  function loadForDisplay(driveUrl) {
+    if (!driveUrl) return Promise.resolve(null);
+    var match = driveUrl.match(/id=([^&]+)/);
+    if (!match) return Promise.resolve(driveUrl);
+    return Api.getImage(match[1]).then(function(data) {
+      return 'data:' + data.mimeType + ';base64,' + data.base64;
+    }).catch(function() { return null; });
   }
 
-  // ── UI: превью выбранного файла ───────────────────────
+  /**
+   * Устанавливает src у img-элемента через прокси.
+   */
+  function setImageSrc(imgEl, driveUrl) {
+    if (!imgEl || !driveUrl) return;
+    loadForDisplay(driveUrl).then(function(src) {
+      if (src && imgEl) imgEl.src = src;
+    });
+  }
+
+  // ── UI: input + preview ───────────────────────────────────
 
   function initPhotoInput(inputId, previewId) {
-    const input   = document.getElementById(inputId);
-    const preview = document.getElementById(previewId);
+    var input   = document.getElementById(inputId);
+    var preview = document.getElementById(previewId);
     if (!input || !preview) return;
-
-    input.addEventListener('change', () => {
-      const file = input.files && input.files[0];
+    // Сбрасываем старый обработчик
+    var newInput = input.cloneNode(true);
+    input.parentNode.replaceChild(newInput, input);
+    newInput.addEventListener('change', function() {
+      var file = newInput.files && newInput.files[0];
       if (!file) { preview.innerHTML = ''; return; }
-
-      // Показываем превью сразу из локального файла
-      const url = URL.createObjectURL(file);
-      preview.innerHTML =
-        '<div class="photo-preview">' +
-        '<img src="' + url + '" alt="фото">' +
-        '<button type="button" class="photo-remove" onclick="Photos.clearInput(\'' + inputId + '\',\'' + previewId + '\')">×</button>' +
-        '</div>';
+      var url = URL.createObjectURL(file);
+      var img = document.createElement('img');
+      img.src   = url;
+      img.style.cssText = 'max-width:100%;max-height:180px;border-radius:6px;display:block';
+      img.onload = function() { URL.revokeObjectURL(url); };
+      var wrap = document.createElement('div');
+      wrap.className = 'photo-preview';
+      wrap.appendChild(img);
+      preview.innerHTML = '';
+      preview.appendChild(wrap);
     });
   }
 
   function clearInput(inputId, previewId) {
-    const input = document.getElementById(inputId);
-    if (input) input.value = '';
-    const preview = document.getElementById(previewId);
+    var input = document.getElementById(inputId);
+    if (input) {
+      // Сбрасываем value через замену элемента
+      var newInput = input.cloneNode(true);
+      input.parentNode.replaceChild(newInput, input);
+      // Переинициализируем обработчик
+      initPhotoInput(inputId, previewId);
+    }
+    var preview = document.getElementById(previewId);
     if (preview) preview.innerHTML = '';
   }
 
   function getFile(inputId) {
-    const input = document.getElementById(inputId);
-    return input && input.files && input.files[0] ? input.files[0] : null;
+    var input = document.getElementById(inputId);
+    return (input && input.files && input.files[0]) ? input.files[0] : null;
   }
 
-  return { compress, upload, loadForDisplay, initPhotoInput, clearInput, getFile };
+  return {
+    compress:         compress,
+    uploadAndReplace: uploadAndReplace,
+    loadForDisplay:   loadForDisplay,
+    setImageSrc:      setImageSrc,
+    initPhotoInput:   initPhotoInput,
+    clearInput:       clearInput,
+    getFile:          getFile,
+  };
 })();
-
-// ── Загрузка фото с получением URL ──────────────────────
-
-/**
- * Загружает фото в Drive и возвращает Promise<url|null>.
- * Используется при замене фото — uploadPhoto на сервере
- * сам удаляет старое фото и записывает только новый URL.
- */
-async function uploadAndGetUrl(file, pointId) {
-  Diagnostics.set('photoStatus', 'uploading');
-  try {
-    var base64   = await compress(file);
-    var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
-
-    // POST на сервер — Apps Script удаляет старое фото и записывает новый URL
-    await Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
-
-    // Ждём 3 сек и читаем актуальный URL из Sheets
-    await new Promise(function(r) { setTimeout(r, 3000); });
-    var points = await Api.getPoints();
-    var p = points.find(function(x) { return x.id === pointId; });
-    var url = (p && p.photoUrls && p.photoUrls[0]) ? p.photoUrls[0] : null;
-
-    Diagnostics.set('photoStatus', url ? 'uploaded' : 'error');
-    return url;
-  } catch(err) {
-    Diagnostics.setError('photo', err.message);
-    Diagnostics.set('photoStatus', 'error');
-    throw err;
-  }
-}
-
-// ── Загрузка и кэш изображений для отображения ───────────
-
-var _imageCache = {};
-
-/**
- * Загружает изображение через прокси Apps Script (обход CORS Drive).
- * Результат кэшируется в памяти.
- * Возвращает Promise<dataUrl|null>.
- */
-function loadDriveImage(driveUrl) {
-  if (!driveUrl) return Promise.resolve(null);
-
-  // Если уже в кэше — отдаём сразу
-  // Кэш отключён — всегда грузим свежее для актуальности
-  // if (_imageCache[driveUrl]) return Promise.resolve(_imageCache[driveUrl]);
-
-  var match = driveUrl.match(/id=([^&]+)/);
-  if (!match) return Promise.resolve(driveUrl); // не Drive — отдаём как есть
-
-  return Api.getImage(match[1]).then(function(data) {
-    var dataUrl = 'data:' + data.mimeType + ';base64,' + data.base64;
-    _imageCache[driveUrl] = dataUrl;
-    return dataUrl;
-  }).catch(function() {
-    return null;
-  });
-}
-
-/**
- * Устанавливает src изображению через прокси.
- * imgEl — элемент <img>.
- */
-function setImageSrc(imgEl, driveUrl) {
-  if (!imgEl || !driveUrl) return;
-  imgEl.src = ''; // placeholder
-  loadDriveImage(driveUrl).then(function(src) {
-    if (src) imgEl.src = src;
-  });
-}
-
-// Экспортируем в Photos
-Photos.loadDriveImage  = loadDriveImage;
-Photos.setImageSrc     = setImageSrc;
-Photos.uploadAndGetUrl = uploadAndGetUrl;

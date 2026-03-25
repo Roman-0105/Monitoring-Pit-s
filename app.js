@@ -1,11 +1,10 @@
 /**
- * app.js — инициализация и UI.
- * Форма добавления — только новые точки, всегда сбрасывается.
- * Редактирование — в модальном окне поверх любой вкладки.
+ * app.js — инициализация, роутинг, UI.
+ * Весь JS здесь. В index.html нет inline-скриптов.
  */
 
 window.APP_CONFIG = {
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxTV9f7gHMC7iYktKznRMdoocDVZ6CF8_G00WfOFxxeP7ztMmY2CBgchgc3-XgRCDev/exec',
+  SCRIPT_URL:       'https://script.google.com/macros/s/AKfycbxTV9f7gHMC7iYktKznRMdoocDVZ6CF8_G00WfOFxxeP7ztMmY2CBgchgc3-XgRCDev/exec',
   SYNC_INTERVAL_MS: 30000,
 };
 
@@ -17,15 +16,19 @@ var AppState = {
 // ── Инициализация ─────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   showLoader('Загрузка...');
+
+  // Конфигурация
+  var devEl = document.getElementById('device-id-display');
+  if (devEl) devEl.textContent = Storage.getDeviceId();
+  var suEl  = document.getElementById('script-url-status');
+  if (suEl)  suEl.textContent  = (APP_CONFIG.SCRIPT_URL && APP_CONFIG.SCRIPT_URL.indexOf('ВСТАВЬ') < 0) ? '✅ задан' : '❌ не задан';
+
   initTabs();
   initAddForm();
   initEditModal();
+  initDiagButtons();
+  Photos.initPhotoInput('f-photo', 'f-photo-preview');
   Diagnostics.render();
-
-  var devEl = document.getElementById('device-id-display');
-  if (devEl) devEl.textContent = Storage.getDeviceId();
-  var suEl = document.getElementById('script-url-status');
-  if (suEl) suEl.textContent = (APP_CONFIG.SCRIPT_URL && APP_CONFIG.SCRIPT_URL.indexOf('ВСТАВЬ') < 0) ? '✅ задан' : '❌ не задан';
 
   Promise.all([Workers.load(), Points.load()]).then(function() {
     renderWorkers();
@@ -41,18 +44,14 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   setInterval(syncAll, APP_CONFIG.SYNC_INTERVAL_MS);
-  window.addEventListener('online', function() {
-    Points.flushQueue();
-    syncAll();
-  });
+  window.addEventListener('online', function() { Points.flushQueue(); syncAll(); });
 });
 
+// ── Синхронизация ─────────────────────────────────────────
 function syncAll() {
   if (!navigator.onLine) return;
   Points.flushQueue().then(function() {
-    return Points.load();
-  }).then(function() {
-    return Workers.load();
+    return Promise.all([Points.load(), Workers.load()]);
   }).then(function() {
     renderPointsList();
     renderWorkers();
@@ -64,64 +63,60 @@ function syncAll() {
 
 // ── Вкладки ───────────────────────────────────────────────
 function initTabs() {
-  var btns = document.querySelectorAll('[data-tab]');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].addEventListener('click', function() {
-      switchTab(this.dataset.tab);
-    });
-  }
+  document.querySelectorAll('[data-tab]').forEach(function(btn) {
+    btn.addEventListener('click', function() { switchTab(this.dataset.tab); });
+  });
 }
 
 function switchTab(name) {
   AppState.currentTab = name;
-  var btns = document.querySelectorAll('.tab-btn');
-  for (var i = 0; i < btns.length; i++) {
-    btns[i].classList.toggle('active', btns[i].dataset.tab === name);
-  }
-  var pages = document.querySelectorAll('.page');
-  for (var j = 0; j < pages.length; j++) {
-    pages[j].classList.toggle('active', pages[j].id === 'page-' + name);
-  }
-  // При переходе на "Добавить" — всегда сбрасываем форму
-  if (name === 'add') {
-    resetAddForm();
-  }
-  if (name === 'diag') Diagnostics.render();
+  document.querySelectorAll('.tab-btn').forEach(function(b) {
+    b.classList.toggle('active', b.dataset.tab === name);
+  });
+  document.querySelectorAll('.page').forEach(function(p) {
+    p.classList.toggle('active', p.id === 'page-' + name);
+  });
+  if (name === 'add')     resetAddForm();
+  if (name === 'diag')    Diagnostics.render();
   if (name === 'workers') renderWorkerManageList();
 }
 
 // ── Лоадер ───────────────────────────────────────────────
 function showLoader(msg) {
   var el = document.getElementById('loader');
-  if (el) { el.textContent = msg; el.style.display = 'flex'; }
+  if (el) { el.textContent = msg || '⏳'; el.style.display = 'flex'; }
 }
 function hideLoader() {
   var el = document.getElementById('loader');
   if (el) el.style.display = 'none';
 }
 
-// ── Рендер точек ─────────────────────────────────────────
+// ── Список точек ─────────────────────────────────────────
 function renderPointsList() {
   var container = document.getElementById('points-list');
   if (!container) return;
   var points = Points.getList();
-
   if (!points.length) {
     container.innerHTML = '<p class="empty-msg">Точек пока нет</p>';
     return;
   }
-
   var html = '';
   for (var i = 0; i < points.length; i++) {
     var p = points[i];
-    var pending = p.syncStatus !== 'synced';
+    var pending     = p.syncStatus !== 'synced';
     var statusClass = (p.status || '').toLowerCase().replace(/\s/g, '-');
+    var hasPhoto    = p.photoUrls && p.photoUrls[0];
     html += '<div class="point-card' + (pending ? ' point-pending' : '') + '">';
     html += '<div class="point-card__header">';
     html += '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>';
     html += '<span class="point-card__status status-' + statusClass + '">' + (p.status || '') + '</span>';
     if (pending) html += '<span class="sync-badge">⏳</span>';
     html += '</div>';
+    if (hasPhoto) {
+      html += '<div class="point-card__photo-wrap">';
+      html += '<img class="card-photo-thumb" data-url="' + p.photoUrls[0] + '" src="" alt="фото">';
+      html += '</div>';
+    }
     html += '<div class="point-card__body">';
     html += '<div>👤 ' + (p.worker || '—') + '</div>';
     html += '<div>📅 ' + formatDate(p.createdAt) + '</div>';
@@ -130,13 +125,12 @@ function renderPointsList() {
       if (p.flowRate != null) html += ' · ' + p.flowRate + ' л/с';
       html += '</div>';
     }
-    if (p.domain) html += '<div>📍 ' + p.domain + '</div>';
+    if (p.domain)  html += '<div>📍 ' + p.domain + '</div>';
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
-    if (p.photoUrls && p.photoUrls[0]) html += '<div class="point-card__photo"><img class="card-photo-thumb" data-url="' + p.photoUrls[0] + '" src="" alt="фото"></div>';
     html += '</div>';
     html += '<div class="point-card__actions">';
     html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
-    html += '<button class="btn btn-sm btn-danger btn-del" data-pid="' + p.id + '">🗑 Удалить</button>';
+    html += '<button class="btn btn-sm btn-danger btn-del"  data-pid="' + p.id + '">🗑 Удалить</button>';
     html += '</div></div>';
   }
   container.innerHTML = html;
@@ -147,16 +141,13 @@ function renderPointsList() {
   container.querySelectorAll('.btn-del').forEach(function(btn) {
     btn.addEventListener('click', function() { confirmDelete(this.dataset.pid); });
   });
-
-  // Загружаем фото через прокси (обход CORS Drive)
-  if (typeof Photos !== 'undefined' && Photos.setImageSrc) {
-    container.querySelectorAll('.card-photo-thumb').forEach(function(img) {
-      Photos.setImageSrc(img, img.dataset.url);
-    });
-  }
+  // Загружаем фото через прокси
+  container.querySelectorAll('.card-photo-thumb').forEach(function(img) {
+    Photos.setImageSrc(img, img.dataset.url);
+  });
 }
 
-// ── Рендер сотрудников ────────────────────────────────────
+// ── Сотрудники ────────────────────────────────────────────
 function renderWorkers() {
   var grid = document.getElementById('worker-grid');
   if (grid) {
@@ -164,67 +155,72 @@ function renderWorkers() {
     var html = '';
     for (var i = 0; i < workers.length; i++) {
       var w = workers[i];
-      html += '<button class="worker-btn" data-wname="' + w.name.replace(/"/g, '&quot;') + '">';
+      html += '<div class="worker-btn" data-wname="' + escAttr(w.name) + '">';
       html += '<span class="worker-btn__avatar">' + initials(w.name) + '</span>';
-      html += '<span>' + w.name + '</span></button>';
+      html += '<span>' + w.name + '</span></div>';
     }
-    grid.innerHTML = html;
-    grid.querySelectorAll('.worker-btn').forEach(function(btn) {
-      btn.addEventListener('click', function() { selectWorker(this.dataset.wname); });
-    });
+    grid.innerHTML = html || '<p class="empty-msg" style="padding:8px 0">Нет сотрудников</p>';
   }
   updateWorkerSelects();
 }
 
 function updateWorkerSelects() {
   var workers = Workers.getList();
-  var selects = ['f-worker', 'e-worker'];
-  for (var s = 0; s < selects.length; s++) {
-    var sel = document.getElementById(selects[s]);
-    if (!sel) continue;
+  ['f-worker', 'e-worker'].forEach(function(id) {
+    var sel = document.getElementById(id);
+    if (!sel) return;
     var cur = sel.value;
     sel.innerHTML = '<option value="">— выберите —</option>';
-    for (var i = 0; i < workers.length; i++) {
+    workers.forEach(function(w) {
       var opt = document.createElement('option');
-      opt.value = workers[i].name;
-      opt.textContent = workers[i].name;
+      opt.value = w.name;
+      opt.textContent = w.name;
       sel.appendChild(opt);
-    }
+    });
     if (cur) sel.value = cur;
-  }
+  });
 }
 
-function selectWorker(name) {
-  renderWorkers();
-}
-
-// ── Управление сотрудниками ───────────────────────────────
 function renderWorkerManageList() {
   var container = document.getElementById('workers-manage-list');
   if (!container) return;
   var workers = Workers.getList();
   if (!workers.length) {
-    container.innerHTML = '<p class="empty-msg" style="padding:12px 0">Список пуст</p>';
+    container.innerHTML = '<p class="empty-msg" style="padding:8px 0">Список пуст</p>';
     return;
   }
   var html = '';
   for (var i = 0; i < workers.length; i++) {
     var w = workers[i];
     html += '<div class="worker-manage-row" data-wid="' + w.id + '">';
-    html += '<input type="text" value="' + w.name.replace(/"/g, '&quot;') + '">';
-    html += '<button class="btn-icon btn-icon-del">×</button>';
+    html += '<input type="text" value="' + escAttr(w.name) + '">';
+    html += '<button class="btn-icon btn-icon-del" type="button">×</button>';
     html += '</div>';
   }
   container.innerHTML = html;
   container.querySelectorAll('.worker-manage-row').forEach(function(row) {
     var wid = row.dataset.wid;
-    row.querySelector('input').addEventListener('change', function() { renameWorker(wid, this.value); });
-    row.querySelector('.btn-icon-del').addEventListener('click', function() { removeWorkerFromUI(wid); });
+    row.querySelector('input').addEventListener('change', function() {
+      renameWorker(wid, this.value);
+    });
+    row.querySelector('.btn-icon-del').addEventListener('click', function() {
+      removeWorker(wid);
+    });
   });
+
+  // Кнопка добавить
+  var addBtn = document.getElementById('btn-add-worker');
+  if (addBtn && !addBtn._bound) {
+    addBtn._bound = true;
+    addBtn.addEventListener('click', addWorker);
+    document.getElementById('new-worker-name').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); addWorker(); }
+    });
+  }
 }
 
-function addWorkerFromUI() {
-  var inp = document.getElementById('new-worker-name');
+function addWorker() {
+  var inp  = document.getElementById('new-worker-name');
   var name = inp ? inp.value.trim() : '';
   if (!name) { alert('Введите имя'); return; }
   Workers.add(name).then(function() {
@@ -234,7 +230,7 @@ function addWorkerFromUI() {
   });
 }
 
-function removeWorkerFromUI(id) {
+function removeWorker(id) {
   if (!confirm('Удалить сотрудника?')) return;
   Workers.remove(id).then(function() {
     renderWorkers();
@@ -247,7 +243,7 @@ function renameWorker(id, newName) {
   var list = Workers.getList();
   for (var i = 0; i < list.length; i++) {
     if (list[i].id === id) {
-      list[i].name = newName.trim();
+      list[i].name      = newName.trim();
       list[i].updatedAt = new Date().toISOString();
       Storage.cacheWorkers(list);
       Api.saveWorker(list[i]).catch(function(e) { console.warn(e); });
@@ -257,51 +253,34 @@ function renameWorker(id, newName) {
   }
 }
 
-// ── ФОРМА ДОБАВЛЕНИЯ (только новые точки) ────────────────
+// ── Форма добавления ──────────────────────────────────────
 function initAddForm() {
   var form = document.getElementById('add-form');
-  if (form) {
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-      saveNewPoint();
-    });
-  }
-  var gpsBtn = document.getElementById('btn-gps');
-  if (gpsBtn) gpsBtn.addEventListener('click', getGPS);
-  if (typeof Photos !== 'undefined') Photos.initPhotoInput('f-photo', 'f-photo-preview');
+  if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveNewPoint(); });
+  var gps = document.getElementById('btn-gps');
+  if (gps) gps.addEventListener('click', getGPS);
 }
 
 function resetAddForm() {
   var form = document.getElementById('add-form');
   if (form) form.reset();
-  if (typeof Photos !== 'undefined') Photos.clearInput('f-photo', 'f-photo-preview');
+  Photos.clearInput('f-photo', 'f-photo-preview');
 }
 
 function saveNewPoint() {
-  var data = {
-    pointNumber: getField('f-num'),
-    worker:      getField('f-worker'),
-    lat:         parseFloatOrNull(getField('f-lat')),
-    lon:         parseFloatOrNull(getField('f-lon')),
-    intensity:   getField('f-intensity'),
-    flowRate:    parseFloatOrNull(getField('f-flowrate')),
-    waterColor:  getField('f-color'),
-    wall:        getField('f-wall'),
-    domain:      getField('f-domain'),
-    status:      getField('f-status') || 'Новая',
-    comment:     getField('f-comment'),
-  };
+  var data = readFormFields('f');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
-
+  var photoFile = Photos.getFile('f-photo');
   showLoader('Сохранение...');
   Points.create(data).then(function(savedPoint) {
-    var photoFile = (typeof Photos !== 'undefined') ? Photos.getFile('f-photo') : null;
-    if (photoFile && savedPoint && savedPoint.id) {
-      showLoader('Загрузка фото...');
-      return Photos.upload(photoFile, savedPoint.id).catch(function(e) {
-        console.warn('Photo:', e.message);
-      });
-    }
+    if (!photoFile || !savedPoint || !savedPoint.id) return null;
+    showLoader('Загрузка фото...');
+    return Photos.uploadAndReplace(photoFile, savedPoint.id).then(function(url) {
+      if (url) {
+        // Обновляем точку с новым URL
+        return Points.update(savedPoint.id, { photoUrls: [url] });
+      }
+    }).catch(function(e) { console.warn('Photo:', e.message); });
   }).then(function() {
     resetAddForm();
     return Points.load();
@@ -317,114 +296,67 @@ function saveNewPoint() {
   });
 }
 
-// ── МОДАЛЬНОЕ ОКНО РЕДАКТИРОВАНИЯ ────────────────────────
+// ── Модал редактирования ──────────────────────────────────
 function initEditModal() {
   var closeBtn = document.getElementById('edit-modal-close');
   if (closeBtn) closeBtn.addEventListener('click', closeEditModal);
-
-  var overlay = document.getElementById('edit-modal');
-  if (overlay) {
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) closeEditModal();
-    });
-  }
-
+  var overlay  = document.getElementById('edit-modal');
+  if (overlay) overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) closeEditModal();
+  });
   var form = document.getElementById('edit-form');
-  if (form) {
-    form.addEventListener('submit', function(e) {
-      e.preventDefault();
-      saveEditedPoint();
-    });
-  }
-
-  if (typeof Photos !== 'undefined') Photos.initPhotoInput('e-photo', 'e-photo-preview');
+  if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveEditedPoint(); });
+  var delBtn = document.getElementById('e-delete-photo-btn');
+  if (delBtn) delBtn.addEventListener('click', deletePointPhoto);
+  Photos.initPhotoInput('e-photo', 'e-new-photo-preview');
 }
 
 function openEditModal(id) {
   var p = Points.getById(id);
   if (!p) return;
   AppState.editingPointId = id;
-
   document.getElementById('edit-modal-title').textContent = 'Редактирование #' + p.pointNumber;
-
   setField('e-num',       p.pointNumber);
-  setField('e-lat',       p.lat != null ? p.lat : '');
-  setField('e-lon',       p.lon != null ? p.lon : '');
-  setField('e-intensity', p.intensity);
+  setField('e-lat',       p.lat      != null ? p.lat      : '');
+  setField('e-lon',       p.lon      != null ? p.lon      : '');
+  setField('e-intensity', p.intensity   || '');
   setField('e-flowrate',  p.flowRate != null ? p.flowRate : '');
-  setField('e-color',     p.waterColor);
-  setField('e-wall',      p.wall);
-  setField('e-domain',    p.domain);
-  setField('e-status',    p.status);
-  setField('e-comment',   p.comment);
-
-  // Заполняем список сотрудников и выбираем текущего
+  setField('e-color',     p.waterColor  || '');
+  setField('e-wall',      p.wall        || '');
+  setField('e-domain',    p.domain      || '');
+  setField('e-status',    p.status      || 'Новая');
+  setField('e-comment',   p.comment     || '');
   updateWorkerSelects();
-  setField('e-worker', p.worker);
+  setField('e-worker', p.worker || '');
 
-  // Показываем текущее фото через прокси
+  // Текущее фото
   var preview = document.getElementById('e-photo-preview');
   if (preview) {
+    preview.innerHTML = '';
     if (p.photoUrls && p.photoUrls[0]) {
       var img = document.createElement('img');
-      img.alt = 'фото';
-      img.style.cssText = 'max-width:100%;max-height:150px;border-radius:6px;display:block;margin-bottom:6px';
-      preview.innerHTML = '';
-      preview.appendChild(img);
-      var lbl = document.createElement('span');
-      lbl.className = 'photo-label';
+      img.alt = 'текущее фото';
+      img.style.cssText = 'max-width:100%;max-height:160px;border-radius:6px;display:block;margin-bottom:4px';
+      var lbl = document.createElement('p');
+      lbl.className   = 'form-hint';
       lbl.textContent = 'Загрузка фото...';
+      preview.appendChild(img);
       preview.appendChild(lbl);
-      if (typeof Photos !== 'undefined' && Photos.setImageSrc) {
-        Photos.setImageSrc(img, p.photoUrls[0]);
-        img.onload = function() { lbl.textContent = 'Текущее фото'; };
-        img.onerror = function() { lbl.textContent = 'Фото недоступно'; };
-      }
-    } else {
-      preview.innerHTML = '';
+      Photos.setImageSrc(img, p.photoUrls[0]);
+      img.onload  = function() { lbl.textContent = 'Текущее фото'; };
+      img.onerror = function() { lbl.textContent = 'Фото недоступно'; };
     }
   }
 
-  if (typeof Photos !== 'undefined') Photos.clearInput('e-photo', 'e-photo-preview');
+  // Кнопка удаления фото
+  var delBtn = document.getElementById('e-delete-photo-btn');
+  if (delBtn) delBtn.style.display = (p.photoUrls && p.photoUrls[0]) ? 'inline-flex' : 'none';
 
-  // Показываем/скрываем кнопку удаления фото
-  var delPhotoBtn = document.getElementById('e-delete-photo-btn');
-  if (delPhotoBtn) {
-    delPhotoBtn.style.display = (p.photoUrls && p.photoUrls[0]) ? 'block' : 'none';
-  }
+  // Сбрасываем preview нового фото
+  Photos.clearInput('e-photo', 'e-new-photo-preview');
 
   document.getElementById('edit-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-}
-
-function deletePointPhoto() {
-  if (!AppState.editingPointId) return;
-  if (!confirm('Удалить фото этой точки?')) return;
-  var id = AppState.editingPointId;
-  var p = Points.getById(id);
-  if (!p) return;
-
-  showLoader('Удаление фото...');
-
-  // Очищаем preview сразу
-  var preview = document.getElementById('e-photo-preview');
-  if (preview) preview.innerHTML = '';
-  var delBtn = document.getElementById('e-delete-photo-btn');
-  if (delBtn) delBtn.style.display = 'none';
-
-  // Отправляем на сервер
-  Api.deletePhoto(id).catch(function(e) { console.warn('deletePhoto:', e); });
-
-  // Обновляем локально
-  Points.update(id, { photoUrls: [] }).then(function() {
-    return Points.load();
-  }).then(function() {
-    renderPointsList();
-    hideLoader();
-  }).catch(function(err) {
-    hideLoader();
-    console.warn(err);
-  });
 }
 
 function closeEditModal() {
@@ -435,45 +367,31 @@ function closeEditModal() {
 
 function saveEditedPoint() {
   if (!AppState.editingPointId) return;
-  var data = {
-    pointNumber: getField('e-num'),
-    worker:      getField('e-worker'),
-    lat:         parseFloatOrNull(getField('e-lat')),
-    lon:         parseFloatOrNull(getField('e-lon')),
-    intensity:   getField('e-intensity'),
-    flowRate:    parseFloatOrNull(getField('e-flowrate')),
-    waterColor:  getField('e-color'),
-    wall:        getField('e-wall'),
-    domain:      getField('e-domain'),
-    status:      getField('e-status') || 'Новая',
-    comment:     getField('e-comment'),
-  };
+  var id        = AppState.editingPointId;
+  var data      = readFormFields('e');
+  var photoFile = Photos.getFile('e-photo');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
-
-  var id = AppState.editingPointId;
-  var photoFile = (typeof Photos !== 'undefined') ? Photos.getFile('e-photo') : null;
   showLoader('Сохранение...');
   closeEditModal();
 
-  var photoPromise;
+  var chain;
   if (photoFile) {
-    // Сначала загружаем фото — uploadPhoto сам удаляет старое и возвращает новый URL
+    // Сначала атомарно заменяем фото на сервере — получаем новый URL
     showLoader('Загрузка фото...');
-    photoPromise = Photos.uploadAndGetUrl(photoFile, id).then(function(newUrl) {
-      // Теперь обновляем точку уже с новым photoUrls
+    chain = Photos.uploadAndReplace(photoFile, id).then(function(newUrl) {
       data.photoUrls = newUrl ? [newUrl] : [];
       return Points.update(id, data);
     }).catch(function(e) {
       console.warn('Photo upload:', e.message);
-      // Если фото не загрузилось — сохраняем точку без изменения фото
+      // Фото не загрузилось — сохраняем остальные поля без изменения photoUrls
       return Points.update(id, data);
     });
   } else {
-    // Фото не меняем — обновляем только поля точки
-    photoPromise = Points.update(id, data);
+    // Фото не меняем — updatePoint сам возьмёт photoUrls из Sheets
+    chain = Points.update(id, data);
   }
 
-  photoPromise.then(function() {
+  chain.then(function() {
     return Points.load();
   }).then(function() {
     renderPointsList();
@@ -486,7 +404,25 @@ function saveEditedPoint() {
   });
 }
 
-// ── Удаление ─────────────────────────────────────────────
+function deletePointPhoto() {
+  if (!AppState.editingPointId) return;
+  if (!confirm('Удалить фото этой точки?')) return;
+  var id     = AppState.editingPointId;
+  var preview = document.getElementById('e-photo-preview');
+  if (preview) preview.innerHTML = '';
+  var delBtn  = document.getElementById('e-delete-photo-btn');
+  if (delBtn)  delBtn.style.display = 'none';
+  showLoader('Удаление фото...');
+  Api.deletePhoto(id).catch(function(e) { console.warn(e); });
+  Points.update(id, { photoUrls: [] }).then(function() {
+    return Points.load();
+  }).then(function() {
+    renderPointsList();
+    hideLoader();
+  }).catch(function() { hideLoader(); });
+}
+
+// ── Удаление точки ────────────────────────────────────────
 function confirmDelete(id) {
   var p = Points.getById(id);
   if (!p) return;
@@ -505,29 +441,52 @@ function confirmDelete(id) {
   });
 }
 
+// ── Диагностика ───────────────────────────────────────────
+function initDiagButtons() {
+  var s = document.getElementById('btn-sync-now');
+  if (s) s.addEventListener('click', syncAll);
+  var f = document.getElementById('btn-flush-queue');
+  if (f) f.addEventListener('click', function() { Points.flushQueue(); });
+  var c = document.getElementById('btn-clear-cache');
+  if (c) c.addEventListener('click', function() {
+    if (confirm('Очистить локальный кэш?')) { Storage.clearAll(); location.reload(); }
+  });
+}
+
 // ── GPS ──────────────────────────────────────────────────
 function getGPS() {
   if (!navigator.geolocation) { alert('GPS не поддерживается'); return; }
   var btn = document.getElementById('btn-gps');
-  if (btn) btn.textContent = '⏳ Определяем...';
-  navigator.geolocation.getCurrentPosition(
-    function(pos) {
-      setField('f-lat', pos.coords.latitude.toFixed(7));
-      setField('f-lon', pos.coords.longitude.toFixed(7));
-      if (btn) btn.textContent = '📍 GPS';
-    },
-    function(err) {
-      alert('GPS ошибка: ' + err.message);
-      if (btn) btn.textContent = '📍 GPS';
-    },
-    { enableHighAccuracy: true, timeout: 15000 }
-  );
+  if (btn) btn.textContent = '⏳...';
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    setField('f-lat', pos.coords.latitude.toFixed(7));
+    setField('f-lon', pos.coords.longitude.toFixed(7));
+    if (btn) btn.textContent = '📍 GPS';
+  }, function(err) {
+    alert('GPS: ' + err.message);
+    if (btn) btn.textContent = '📍 GPS';
+  }, { enableHighAccuracy: true, timeout: 15000 });
 }
 
 // ── Утилиты ───────────────────────────────────────────────
-function setField(id, value) {
+function readFormFields(prefix) {
+  return {
+    pointNumber: getField(prefix + '-num'),
+    worker:      getField(prefix + '-worker'),
+    lat:         parseFloatOrNull(getField(prefix + '-lat')),
+    lon:         parseFloatOrNull(getField(prefix + '-lon')),
+    intensity:   getField(prefix + '-intensity'),
+    flowRate:    parseFloatOrNull(getField(prefix + '-flowrate')),
+    waterColor:  getField(prefix + '-color'),
+    wall:        getField(prefix + '-wall'),
+    domain:      getField(prefix + '-domain'),
+    status:      getField(prefix + '-status') || 'Новая',
+    comment:     getField(prefix + '-comment'),
+  };
+}
+function setField(id, v) {
   var el = document.getElementById(id);
-  if (el) el.value = (value != null) ? value : '';
+  if (el) el.value = (v != null) ? v : '';
 }
 function getField(id) {
   var el = document.getElementById(id);
@@ -538,7 +497,10 @@ function parseFloatOrNull(v) {
   return isNaN(n) ? null : n;
 }
 function initials(name) {
-  return (name || '').split(' ').map(function(p) { return p[0] || ''; }).join('').slice(0, 2).toUpperCase();
+  return (name || '').split(' ').map(function(s) { return s[0] || ''; }).join('').slice(0, 2).toUpperCase();
+}
+function escAttr(s) {
+  return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 }
 function formatDate(iso) {
   if (!iso) return '—';

@@ -11,13 +11,11 @@
 <body>
 <div id="app">
 
-  <!-- Header -->
   <header class="app-header">
     <h1>Фиксация подземных вод</h1>
     <p>Карьер ЮРГ — Локальная СК (Пулково-42)</p>
   </header>
 
-  <!-- Tabs -->
   <nav class="tab-bar">
     <button class="tab-btn active" data-tab="points">📋 Точки</button>
     <button class="tab-btn"        data-tab="add">➕ Добавить</button>
@@ -25,42 +23,33 @@
     <button class="tab-btn"        data-tab="diag">🔧 Диагностика</button>
   </nav>
 
-  <!-- Page: Points list -->
+  <!-- Список точек -->
   <div class="page active" id="page-points">
-    <div id="points-list">
-      <p class="empty-msg">Загрузка...</p>
-    </div>
+    <div id="points-list"><p class="empty-msg">Загрузка...</p></div>
   </div>
 
-  <!-- Page: Add point (только добавление, не редактирование) -->
+  <!-- Добавление точки -->
   <div class="page" id="page-add">
     <h2 class="section-title">Новая точка</h2>
     <form id="add-form">
-
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="f-num">Номер точки *</label>
-          <input class="form-input" id="f-num" type="text" placeholder="1, 2, К, Е..." required>
+          <input class="form-input" id="f-num" type="text" placeholder="1, 2, К..." required>
         </div>
         <div class="form-group">
           <label class="form-label" for="f-worker">Сотрудник</label>
-          <select class="form-select" id="f-worker">
-            <option value="">— выберите —</option>
-          </select>
+          <select class="form-select" id="f-worker"><option value="">— выберите —</option></select>
         </div>
       </div>
-
       <div class="form-group">
         <label class="form-label">Координаты</label>
         <div class="form-row">
           <input class="form-input" id="f-lat" type="number" step="any" placeholder="Широта">
           <input class="form-input" id="f-lon" type="number" step="any" placeholder="Долгота">
         </div>
-        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:8px">
-          📍 Определить GPS
-        </button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:8px">📍 GPS</button>
       </div>
-
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="f-intensity">Интенсивность</label>
@@ -74,10 +63,9 @@
         </div>
         <div class="form-group">
           <label class="form-label" for="f-flowrate">Дебит, л/с</label>
-          <input class="form-input" id="f-flowrate" type="number" step="any" min="0" placeholder="0.5">
+          <input class="form-input" id="f-flowrate" type="number" step="any" min="0">
         </div>
       </div>
-
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="f-color">Цвет воды</label>
@@ -98,7 +86,6 @@
           </select>
         </div>
       </div>
-
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="f-wall">Борт</label>
@@ -114,213 +101,167 @@
           <label class="form-label" for="f-domain">Домен</label>
           <select class="form-select" id="f-domain">
             <option value="">—</option>
-            <option>Domen-1</option>
-            <option>Domen-2</option>
-            <option>Domen-3</option>
-            <option>Domen-4</option>
-            <option>Domen-5</option>
+            <option>Domen-1</option><option>Domen-2</option>
+            <option>Domen-3</option><option>Domen-4</option><option>Domen-5</option>
           </select>
         </div>
       </div>
-
       <div class="form-group">
         <label class="form-label" for="f-comment">Комментарий</label>
         <textarea class="form-textarea" id="f-comment" placeholder="Описание, наблюдения..."></textarea>
       </div>
-
       <div class="form-group">
-        <label class="form-label" for="f-photo">Фото</label>
+        <label class="form-label">Фото</label>
         <div id="f-photo-preview"></div>
         <label class="photo-pick-btn" for="f-photo">
           📷 Выбрать фото
           <input type="file" id="f-photo" accept="image/*" capture="environment" style="display:none">
         </label>
-        <p class="form-hint">Будет сжато до 1600px перед отправкой</p>
+        <p class="form-hint">Сжимается до 1600px перед отправкой</p>
       </div>
-
-      <button type="submit" class="btn btn-primary btn-full">
-        Сохранить точку
-      </button>
+      <button type="submit" class="btn btn-primary btn-full">Сохранить точку</button>
     </form>
   </div>
 
-  <!-- Модальное окно редактирования точки -->
-  <div id="edit-modal" class="modal-overlay" style="display:none">
-    <div class="modal-box">
-      <div class="modal-header">
-        <span class="modal-title" id="edit-modal-title">Редактирование</span>
-        <button class="modal-close" id="edit-modal-close">✕</button>
-      </div>
-      <div class="modal-body">
-        <form id="edit-form">
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="e-num">Номер точки *</label>
-              <input class="form-input" id="e-num" type="text" required>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="e-worker">Сотрудник</label>
-              <select class="form-select" id="e-worker">
-                <option value="">— выберите —</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Координаты</label>
-            <div class="form-row">
-              <input class="form-input" id="e-lat" type="number" step="any" placeholder="Широта">
-              <input class="form-input" id="e-lon" type="number" step="any" placeholder="Долгота">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="e-intensity">Интенсивность</label>
-              <select class="form-select" id="e-intensity">
-                <option value="">—</option>
-                <option>Слабая (капёж)</option>
-                <option>Умеренная</option>
-                <option>Сильная (поток)</option>
-                <option>Очень сильная</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="e-flowrate">Дебит, л/с</label>
-              <input class="form-input" id="e-flowrate" type="number" step="any" min="0">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="e-color">Цвет воды</label>
-              <select class="form-select" id="e-color">
-                <option value="">—</option>
-                <option>Прозрачная</option>
-                <option>Слабожелтоватая</option>
-                <option>Мутная</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="e-status">Статус</label>
-              <select class="form-select" id="e-status">
-                <option value="Новая">Новая</option>
-                <option value="Активная">Активная</option>
-                <option value="Иссякает">Иссякает</option>
-                <option value="Пересохла">Пересохла</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label" for="e-wall">Борт</label>
-              <select class="form-select" id="e-wall">
-                <option value="">—</option>
-                <option>Северо-восточный</option>
-                <option>Северо-западный</option>
-                <option>Юго-восточный</option>
-                <option>Юго-западный</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label" for="e-domain">Домен</label>
-              <select class="form-select" id="e-domain">
-                <option value="">—</option>
-                <option>Domen-1</option>
-                <option>Domen-2</option>
-                <option>Domen-3</option>
-                <option>Domen-4</option>
-                <option>Domen-5</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="e-comment">Комментарий</label>
-            <textarea class="form-textarea" id="e-comment"></textarea>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="e-photo">Фото</label>
-            <div id="e-photo-preview"></div>
-            <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
-              <label class="photo-pick-btn" for="e-photo">
-                📷 Заменить фото
-                <input type="file" id="e-photo" accept="image/*" capture="environment" style="display:none">
-              </label>
-              <button type="button" id="e-delete-photo-btn"
-                style="display:none;padding:9px 14px;border:1.5px solid var(--red);border-radius:6px;background:none;color:var(--red);font-size:13px;font-weight:600;cursor:pointer"
-                onclick="deletePointPhoto()">🗑 Удалить фото</button>
-            </div>
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-full">
-            Сохранить изменения
-          </button>
-        </form>
+  <!-- Сотрудники -->
+  <div class="page" id="page-workers">
+    <div class="card">
+      <div class="card-title">Список сотрудников</div>
+      <div id="workers-manage-list"></div>
+      <div class="add-worker-row">
+        <input type="text" id="new-worker-name" placeholder="Фамилия И.О.">
+        <button class="btn btn-primary btn-sm" id="btn-add-worker">+ Добавить</button>
       </div>
     </div>
-  </div>
-
-  <!-- Page: Workers -->
-  <div class="page" id="page-workers">
     <div class="card">
       <div class="card-title">Выбор сотрудника</div>
       <div id="worker-grid" class="worker-grid"></div>
     </div>
-
-    <div class="card">
-      <div class="card-title">Управление списком</div>
-      <div id="workers-manage-list"></div>
-      <div class="add-worker-row">
-        <input type="text" id="new-worker-name" placeholder="Фамилия И.О.">
-        <button class="btn btn-primary btn-sm" onclick="addWorkerFromUI()">+ Добавить</button>
-      </div>
-    </div>
   </div>
 
-  <!-- Page: Diagnostics -->
+  <!-- Диагностика -->
   <div class="page" id="page-diag">
     <div class="card">
-      <div class="card-title">Состояние приложения</div>
+      <div class="card-title">Состояние</div>
       <div id="diag-panel"></div>
     </div>
-
     <div class="card">
       <div class="card-title">Действия</div>
-      <button class="btn btn-outline btn-full" onclick="syncAll()" style="margin-bottom:8px">
-        🔄 Синхронизировать сейчас
-      </button>
-      <button class="btn btn-outline btn-full" onclick="Points.flushQueue()" style="margin-bottom:8px">
-        📤 Отправить очередь
-      </button>
-      <button class="btn btn-outline btn-full" style="color:var(--red);border-color:var(--red)"
-              onclick="if(confirm('Очистить локальный кэш?')){Storage.clearAll();location.reload();}">
-        🗑 Очистить кэш
-      </button>
+      <button class="btn btn-outline btn-full" id="btn-sync-now" style="margin-bottom:8px">🔄 Синхронизировать</button>
+      <button class="btn btn-outline btn-full" id="btn-flush-queue" style="margin-bottom:8px">📤 Отправить очередь</button>
+      <button class="btn btn-outline btn-full" id="btn-clear-cache"
+              style="color:var(--red);border-color:var(--red)">🗑 Очистить кэш</button>
     </div>
-
     <div class="card">
       <div class="card-title">Конфигурация</div>
-      <div class="diag-row">
-        <span>Apps Script URL</span>
-        <span id="script-url-status" style="font-size:10px">—</span>
-      </div>
-      <div class="diag-row">
-        <span>Device ID</span>
-        <span id="device-id-display"></span>
-      </div>
+      <div class="diag-row"><span>Apps Script URL</span><span id="script-url-status">—</span></div>
+      <div class="diag-row"><span>Device ID</span><span id="device-id-display">—</span></div>
     </div>
   </div>
 
 </div><!-- #app -->
 
-<!-- Loader overlay -->
+<!-- Модальное окно редактирования -->
+<div id="edit-modal" class="modal-overlay" style="display:none">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title" id="edit-modal-title">Редактирование</span>
+      <button class="modal-close" id="edit-modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="edit-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="e-num">Номер точки *</label>
+            <input class="form-input" id="e-num" type="text" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="e-worker">Сотрудник</label>
+            <select class="form-select" id="e-worker"><option value="">— выберите —</option></select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Координаты</label>
+          <div class="form-row">
+            <input class="form-input" id="e-lat" type="number" step="any" placeholder="Широта">
+            <input class="form-input" id="e-lon" type="number" step="any" placeholder="Долгота">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="e-intensity">Интенсивность</label>
+            <select class="form-select" id="e-intensity">
+              <option value="">—</option>
+              <option>Слабая (капёж)</option><option>Умеренная</option>
+              <option>Сильная (поток)</option><option>Очень сильная</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="e-flowrate">Дебит, л/с</label>
+            <input class="form-input" id="e-flowrate" type="number" step="any" min="0">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="e-color">Цвет воды</label>
+            <select class="form-select" id="e-color">
+              <option value="">—</option>
+              <option>Прозрачная</option><option>Слабожелтоватая</option><option>Мутная</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="e-status">Статус</label>
+            <select class="form-select" id="e-status">
+              <option value="Новая">Новая</option><option value="Активная">Активная</option>
+              <option value="Иссякает">Иссякает</option><option value="Пересохла">Пересохла</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="e-wall">Борт</label>
+            <select class="form-select" id="e-wall">
+              <option value="">—</option>
+              <option>Северо-восточный</option><option>Северо-западный</option>
+              <option>Юго-восточный</option><option>Юго-западный</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="e-domain">Домен</label>
+            <select class="form-select" id="e-domain">
+              <option value="">—</option>
+              <option>Domen-1</option><option>Domen-2</option>
+              <option>Domen-3</option><option>Domen-4</option><option>Domen-5</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="e-comment">Комментарий</label>
+          <textarea class="form-textarea" id="e-comment"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Фото</label>
+          <div id="e-photo-preview"></div>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <label class="photo-pick-btn" for="e-photo">
+              📷 Заменить фото
+              <input type="file" id="e-photo" accept="image/*" capture="environment" style="display:none">
+            </label>
+            <button type="button" id="e-delete-photo-btn" class="btn-delete-photo" style="display:none">
+              🗑 Удалить фото
+            </button>
+          </div>
+          <div id="e-new-photo-preview"></div>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">Сохранить изменения</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div id="loader">⏳ Загрузка...</div>
 
-<!-- Scripts — порядок важен -->
+<!-- Скрипты — порядок важен -->
 <script src="storage.js"></script>
 <script src="diagnostics.js"></script>
 <script src="api.js"></script>
@@ -328,65 +269,5 @@
 <script src="points.js"></script>
 <script src="photos.js"></script>
 <script src="app.js"></script>
-
-<script>
-  // Показываем device ID
-  document.addEventListener('DOMContentLoaded', () => {
-    const el = document.getElementById('device-id-display');
-    if (el) el.textContent = Storage.getDeviceId();
-    const su = document.getElementById('script-url-status');
-    if (su) su.textContent = (window.APP_CONFIG && window.APP_CONFIG.SCRIPT_URL && !window.APP_CONFIG.SCRIPT_URL.includes('ВСТАВЬ')) ? '✅ задан' : '❌ не задан';
-  });
-
-  // Управление сотрудниками из UI
-  function renderWorkerManageList() {
-    const container = document.getElementById('workers-manage-list');
-    if (!container) return;
-    const workers = Workers.getList();
-    if (!workers.length) {
-      container.innerHTML = '<p class="empty-msg" style="padding:12px 0">Список пуст</p>';
-      return;
-    }
-    container.innerHTML = workers.map(function(w) {
-      return '<div class="worker-manage-row">' +
-        '<input type="text" value="' + w.name.replace(/"/g,'&quot;') + '" onchange="renameWorker('' + w.id + '', this.value)">' +
-        '<button class="btn-icon btn-icon-del" onclick="removeWorkerFromUI('' + w.id + '')">×</button>' +
-        '</div>';
-    }).join('');
-  }
-
-  async function addWorkerFromUI() {
-    const inp = document.getElementById('new-worker-name');
-    const name = inp ? inp.value.trim() : '';
-    if (!name) { alert('Введите имя'); return; }
-    await Workers.add(name);
-    if (inp) inp.value = '';
-    renderWorkers();
-    renderWorkerManageList();
-  }
-
-  async function removeWorkerFromUI(id) {
-    if (!confirm('Удалить сотрудника?')) return;
-    await Workers.remove(id);
-    renderWorkers();
-    renderWorkerManageList();
-  }
-
-  async function renameWorker(id, newName) {
-    if (!newName.trim()) return;
-    const w = Workers.getList().find(x => x.id === id);
-    if (!w) return;
-    w.name = newName.trim();
-    w.updatedAt = new Date().toISOString();
-    Storage.cacheWorkers(Workers.getList());
-    try { await Api.saveWorker(w); } catch (e) {}
-    renderWorkers();
-  }
-
-  // Рендерим список управления при открытии вкладки
-  document.querySelectorAll('[data-tab="workers"]').forEach(btn => {
-    btn.addEventListener('click', () => renderWorkerManageList());
-  });
-</script>
 </body>
 </html>

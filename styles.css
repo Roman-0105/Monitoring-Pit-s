@@ -501,3 +501,21 @@ html, body {
 .card-photo-thumb[src=""] {
   display: none;
 }
+
+/* ── Delete photo button ─────────────────────────────── */
+.btn-delete-photo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1.5px solid var(--red);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.point-card__photo-wrap {
+  margin: 6px 0;
+}
