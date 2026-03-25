@@ -283,10 +283,10 @@ function saveNewPoint() {
     showLoader('Загрузка фото...');
     return Photos.uploadAndReplace(photoFile, savedPoint.id).then(function(url) {
       if (url) {
-        // Обновляем точку с новым URL
         return Points.update(savedPoint.id, { photoUrls: [url] });
       }
-    }).catch(function(e) { console.warn('Photo:', e.message); });
+      // url=null — таймаут или ошибка, точка сохранена без фото
+    });
   }).then(function() {
     resetAddForm();
     return Points.load();
@@ -387,13 +387,10 @@ function saveEditedPoint() {
   if (photoFile) {
     showLoader('Загрузка фото...');
     chain = Photos.uploadAndReplace(photoFile, id).then(function(newUrl) {
-      // Используем URL из подтверждённого ответа сервера
-      data.photoUrls = newUrl ? [newUrl] : [];
-      return Points.update(id, data);
-    }).catch(function(e) {
-      Diagnostics.setError('photo', 'Загрузка фото: ' + e.message);
-      // Фото не загрузилось — обновляем только текстовые поля
-      // photoUrls не передаём — сервер сохранит текущее значение
+      if (newUrl) {
+        data.photoUrls = [newUrl]; // атомарная замена подтверждена
+      }
+      // newUrl=null — таймаут, сохраняем поля без изменения photoUrls
       return Points.update(id, data);
     });
   } else {

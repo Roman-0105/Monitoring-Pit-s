@@ -47,13 +47,20 @@ var Photos = (function() {
    */
   function uploadAndReplace(file, pointId) {
     Diagnostics.set('photoStatus', 'uploading');
-    return compress(file).then(function(base64) {
+
+    // Общий таймаут 35 сек — гарантируем что промис всегда завершается
+    var timeoutPromise = new Promise(function(_, reject) {
+      setTimeout(function() {
+        reject(new Error('Таймаут загрузки фото (35 сек)'));
+      }, 35000);
+    });
+
+    var uploadPromise = compress(file).then(function(base64) {
       var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
-      // POST: сервер атомарно удаляет старое и загружает новое
       return Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
     }).then(function() {
-      // Ждём 2 сек чтобы Apps Script завершил запись
-      return new Promise(function(r) { setTimeout(r, 2000); });
+      // Ждём 3 сек чтобы Apps Script завершил запись
+      return new Promise(function(r) { setTimeout(r, 3000); });
     }).then(function() {
       // Читаем актуальный URL из Sheets
       return Api.getPoints();
@@ -62,10 +69,15 @@ var Photos = (function() {
       var url = (p && p.photoUrls && p.photoUrls[0]) ? p.photoUrls[0] : null;
       Diagnostics.set('photoStatus', url ? 'uploaded' : 'error');
       return url;
-    }).catch(function(err) {
+    });
+
+    // Race: либо загрузка завершилась, либо таймаут
+    return Promise.race([uploadPromise, timeoutPromise]).catch(function(err) {
       Diagnostics.setError('photo', err.message);
       Diagnostics.set('photoStatus', 'error');
-      throw err;
+      // НЕ бросаем ошибку дальше — возвращаем null
+      // Точка сохранится без фото, интерфейс не зависнет
+      return null;
     });
   }
 
