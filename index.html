@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Фиксация точек — Карьер ЮРГ</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header class="app-header">
+    <h1>Фиксация подземных вод</h1>
+    <p>Карьер ЮРГ — Локальная СК (Пулково-42)</p>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="points">📋 Точки</button>
+    <button class="tab-btn"        data-tab="add">➕ Добавить</button>
+    <button class="tab-btn"        data-tab="workers">👤 Сотрудники</button>
+    <button class="tab-btn"        data-tab="diag">🔧 Диагностика</button>
+  </nav>
+
+  <!-- Page: Points list -->
+  <div class="page active" id="page-points">
+    <div id="points-list">
+      <p class="empty-msg">Загрузка...</p>
+    </div>
+  </div>
+
+  <!-- Page: Add / Edit point -->
+  <div class="page" id="page-add">
+    <h2 class="section-title" id="form-title">Новая точка</h2>
+    <form id="point-form">
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="f-num">Номер точки *</label>
+          <input class="form-input" id="f-num" type="text" placeholder="1, 2, К, Е..." required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="f-worker">Сотрудник</label>
+          <select class="form-select" id="f-worker">
+            <option value="">— выберите —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- GPS -->
+      <div class="form-group">
+        <label class="form-label">Координаты</label>
+        <div class="form-row">
+          <input class="form-input" id="f-lat" type="number" step="any" placeholder="Широта">
+          <input class="form-input" id="f-lon" type="number" step="any" placeholder="Долгота">
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:8px">
+          📍 Определить GPS
+        </button>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="f-intensity">Интенсивность</label>
+          <select class="form-select" id="f-intensity">
+            <option value="">—</option>
+            <option>Слабая (капёж)</option>
+            <option>Умеренная</option>
+            <option>Сильная (поток)</option>
+            <option>Очень сильная</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="f-flowrate">Дебит, л/с</label>
+          <input class="form-input" id="f-flowrate" type="number" step="any" min="0" placeholder="0.5">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="f-color">Цвет воды</label>
+          <select class="form-select" id="f-color">
+            <option value="">—</option>
+            <option>Прозрачная</option>
+            <option>Слабожелтоватая</option>
+            <option>Мутная</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="f-status">Статус</label>
+          <select class="form-select" id="f-status">
+            <option value="Новая">Новая</option>
+            <option value="Активная">Активная</option>
+            <option value="Иссякает">Иссякает</option>
+            <option value="Пересохла">Пересохла</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="f-wall">Борт</label>
+          <select class="form-select" id="f-wall">
+            <option value="">—</option>
+            <option>Северо-восточный</option>
+            <option>Северо-западный</option>
+            <option>Юго-восточный</option>
+            <option>Юго-западный</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="f-domain">Домен</label>
+          <select class="form-select" id="f-domain">
+            <option value="">—</option>
+            <option>Domen-1</option>
+            <option>Domen-2</option>
+            <option>Domen-3</option>
+            <option>Domen-4</option>
+            <option>Domen-5</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="f-comment">Комментарий</label>
+        <textarea class="form-textarea" id="f-comment" placeholder="Описание, наблюдения..."></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="f-photo">Фото</label>
+        <div id="f-photo-preview"></div>
+        <label class="photo-pick-btn" for="f-photo">
+          📷 Выбрать фото
+          <input type="file" id="f-photo" accept="image/*" capture="environment" style="display:none">
+        </label>
+        <p class="form-hint">Будет сжато до 1600px перед отправкой</p>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full" id="btn-save">
+        Сохранить
+      </button>
+    </form>
+  </div>
+
+  <!-- Page: Workers -->
+  <div class="page" id="page-workers">
+    <div class="card">
+      <div class="card-title">Выбор сотрудника</div>
+      <div id="worker-grid" class="worker-grid"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Управление списком</div>
+      <div id="workers-manage-list"></div>
+      <div class="add-worker-row">
+        <input type="text" id="new-worker-name" placeholder="Фамилия И.О.">
+        <button class="btn btn-primary btn-sm" onclick="addWorkerFromUI()">+ Добавить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page: Diagnostics -->
+  <div class="page" id="page-diag">
+    <div class="card">
+      <div class="card-title">Состояние приложения</div>
+      <div id="diag-panel"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Действия</div>
+      <button class="btn btn-outline btn-full" onclick="syncAll()" style="margin-bottom:8px">
+        🔄 Синхронизировать сейчас
+      </button>
+      <button class="btn btn-outline btn-full" onclick="Points.flushQueue()" style="margin-bottom:8px">
+        📤 Отправить очередь
+      </button>
+      <button class="btn btn-outline btn-full" style="color:var(--red);border-color:var(--red)"
+              onclick="if(confirm('Очистить локальный кэш?')){Storage.clearAll();location.reload();}">
+        🗑 Очистить кэш
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Конфигурация</div>
+      <div class="diag-row">
+        <span>Apps Script URL</span>
+        <span id="script-url-status" style="font-size:10px">—</span>
+      </div>
+      <div class="diag-row">
+        <span>Device ID</span>
+        <span id="device-id-display"></span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- Loader overlay -->
+<div id="loader">⏳ Загрузка...</div>
+
+<!-- Scripts — порядок важен -->
+<script src="storage.js"></script>
+<script src="diagnostics.js"></script>
+<script src="api.js"></script>
+<script src="workers.js"></script>
+<script src="points.js"></script>
+<script src="photos.js"></script>
+<script src="app.js"></script>
+
+<script>
+  // Показываем device ID
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('device-id-display');
+    if (el) el.textContent = Storage.getDeviceId();
+    const su = document.getElementById('script-url-status');
+    if (su) su.textContent = (window.APP_CONFIG && window.APP_CONFIG.SCRIPT_URL && !window.APP_CONFIG.SCRIPT_URL.includes('ВСТАВЬ')) ? '✅ задан' : '❌ не задан';
+  });
+
+  // Управление сотрудниками из UI
+  function renderWorkerManageList() {
+    const container = document.getElementById('workers-manage-list');
+    if (!container) return;
+    const workers = Workers.getList();
+    if (!workers.length) {
+      container.innerHTML = '<p class="empty-msg" style="padding:12px 0">Список пуст</p>';
+      return;
+    }
+    container.innerHTML = workers.map(function(w) {
+      return '<div class="worker-manage-row">' +
+        '<input type="text" value="' + w.name.replace(/"/g,'&quot;') + '" onchange="renameWorker('' + w.id + '', this.value)">' +
+        '<button class="btn-icon btn-icon-del" onclick="removeWorkerFromUI('' + w.id + '')">×</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  async function addWorkerFromUI() {
+    const inp = document.getElementById('new-worker-name');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) { alert('Введите имя'); return; }
+    await Workers.add(name);
+    if (inp) inp.value = '';
+    renderWorkers();
+    renderWorkerManageList();
+  }
+
+  async function removeWorkerFromUI(id) {
+    if (!confirm('Удалить сотрудника?')) return;
+    await Workers.remove(id);
+    renderWorkers();
+    renderWorkerManageList();
+  }
+
+  async function renameWorker(id, newName) {
+    if (!newName.trim()) return;
+    const w = Workers.getList().find(x => x.id === id);
+    if (!w) return;
+    w.name = newName.trim();
+    w.updatedAt = new Date().toISOString();
+    Storage.cacheWorkers(Workers.getList());
+    try { await Api.saveWorker(w); } catch (e) {}
+    renderWorkers();
+  }
+
+  // Рендерим список управления при открытии вкладки
+  document.querySelectorAll('[data-tab="workers"]').forEach(btn => {
+    btn.addEventListener('click', () => renderWorkerManageList());
+  });
+</script>
+</body>
+</html>
