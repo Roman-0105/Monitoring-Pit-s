@@ -133,6 +133,37 @@ const Photos = (() => {
   return { compress, upload, loadForDisplay, initPhotoInput, clearInput, getFile };
 })();
 
+// ── Загрузка фото с получением URL ──────────────────────
+
+/**
+ * Загружает фото в Drive и возвращает Promise<url|null>.
+ * Используется при замене фото — uploadPhoto на сервере
+ * сам удаляет старое фото и записывает только новый URL.
+ */
+async function uploadAndGetUrl(file, pointId) {
+  Diagnostics.set('photoStatus', 'uploading');
+  try {
+    var base64   = await compress(file);
+    var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
+
+    // POST на сервер — Apps Script удаляет старое фото и записывает новый URL
+    await Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
+
+    // Ждём 3 сек и читаем актуальный URL из Sheets
+    await new Promise(function(r) { setTimeout(r, 3000); });
+    var points = await Api.getPoints();
+    var p = points.find(function(x) { return x.id === pointId; });
+    var url = (p && p.photoUrls && p.photoUrls[0]) ? p.photoUrls[0] : null;
+
+    Diagnostics.set('photoStatus', url ? 'uploaded' : 'error');
+    return url;
+  } catch(err) {
+    Diagnostics.setError('photo', err.message);
+    Diagnostics.set('photoStatus', 'error');
+    throw err;
+  }
+}
+
 // ── Загрузка и кэш изображений для отображения ───────────
 
 var _imageCache = {};
@@ -174,5 +205,6 @@ function setImageSrc(imgEl, driveUrl) {
 }
 
 // Экспортируем в Photos
-Photos.loadDriveImage = loadDriveImage;
-Photos.setImageSrc    = setImageSrc;
+Photos.loadDriveImage  = loadDriveImage;
+Photos.setImageSrc     = setImageSrc;
+Photos.uploadAndGetUrl = uploadAndGetUrl;

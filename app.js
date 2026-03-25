@@ -451,19 +451,29 @@ function saveEditedPoint() {
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
 
   var id = AppState.editingPointId;
+  var photoFile = (typeof Photos !== 'undefined') ? Photos.getFile('e-photo') : null;
   showLoader('Сохранение...');
   closeEditModal();
 
-  Points.update(id, data).then(function(savedPoint) {
-    if (!savedPoint) savedPoint = Points.getById(id);
-    var photoFile = (typeof Photos !== 'undefined') ? Photos.getFile('e-photo') : null;
-    if (photoFile && savedPoint && savedPoint.id) {
-      showLoader('Загрузка фото...');
-      return Photos.upload(photoFile, savedPoint.id).catch(function(e) {
-        console.warn('Photo:', e.message);
-      });
-    }
-  }).then(function() {
+  var photoPromise;
+  if (photoFile) {
+    // Сначала загружаем фото — uploadPhoto сам удаляет старое и возвращает новый URL
+    showLoader('Загрузка фото...');
+    photoPromise = Photos.uploadAndGetUrl(photoFile, id).then(function(newUrl) {
+      // Теперь обновляем точку уже с новым photoUrls
+      data.photoUrls = newUrl ? [newUrl] : [];
+      return Points.update(id, data);
+    }).catch(function(e) {
+      console.warn('Photo upload:', e.message);
+      // Если фото не загрузилось — сохраняем точку без изменения фото
+      return Points.update(id, data);
+    });
+  } else {
+    // Фото не меняем — обновляем только поля точки
+    photoPromise = Points.update(id, data);
+  }
+
+  photoPromise.then(function() {
     return Points.load();
   }).then(function() {
     renderPointsList();
