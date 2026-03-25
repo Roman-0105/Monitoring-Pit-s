@@ -4,7 +4,7 @@
 
 // ── Конфигурация ──────────────────────────────────────────
 window.APP_CONFIG = {
-  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbx7aqrKEHtn1VItIdWqGFX6QIcRw5wxx2jhr_E5mw5Gjp3CbjeUAIA_RLzHAn4u38ee/exec',
+  SCRIPT_URL: 'https://script.google.com/macros/s/AKfycbxTV9f7gHMC7iYktKznRMdoocDVZ6CF8_G00WfOFxxeP7ztMmY2CBgchgc3-XgRCDev/exec',
   SYNC_INTERVAL_MS: 30000, // 30 сек
 };
 
