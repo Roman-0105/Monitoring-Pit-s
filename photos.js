@@ -132,3 +132,46 @@ const Photos = (() => {
 
   return { compress, upload, loadForDisplay, initPhotoInput, clearInput, getFile };
 })();
+
+// ── Загрузка и кэш изображений для отображения ───────────
+
+var _imageCache = {};
+
+/**
+ * Загружает изображение через прокси Apps Script (обход CORS Drive).
+ * Результат кэшируется в памяти.
+ * Возвращает Promise<dataUrl|null>.
+ */
+function loadDriveImage(driveUrl) {
+  if (!driveUrl) return Promise.resolve(null);
+
+  // Если уже в кэше — отдаём сразу
+  if (_imageCache[driveUrl]) return Promise.resolve(_imageCache[driveUrl]);
+
+  var match = driveUrl.match(/id=([^&]+)/);
+  if (!match) return Promise.resolve(driveUrl); // не Drive — отдаём как есть
+
+  return Api.getImage(match[1]).then(function(data) {
+    var dataUrl = 'data:' + data.mimeType + ';base64,' + data.base64;
+    _imageCache[driveUrl] = dataUrl;
+    return dataUrl;
+  }).catch(function() {
+    return null;
+  });
+}
+
+/**
+ * Устанавливает src изображению через прокси.
+ * imgEl — элемент <img>.
+ */
+function setImageSrc(imgEl, driveUrl) {
+  if (!imgEl || !driveUrl) return;
+  imgEl.src = ''; // placeholder
+  loadDriveImage(driveUrl).then(function(src) {
+    if (src) imgEl.src = src;
+  });
+}
+
+// Экспортируем в Photos
+Photos.loadDriveImage = loadDriveImage;
+Photos.setImageSrc    = setImageSrc;

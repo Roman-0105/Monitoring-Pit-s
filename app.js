@@ -132,7 +132,7 @@ function renderPointsList() {
     }
     if (p.domain) html += '<div>📍 ' + p.domain + '</div>';
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
-    if (p.photoUrls && p.photoUrls[0]) html += '<div class="point-card__photo">📷 Фото</div>';
+    if (p.photoUrls && p.photoUrls[0]) html += '<div class="point-card__photo"><img class="card-photo-thumb" data-url="' + p.photoUrls[0] + '" src="" alt="фото"></div>';
     html += '</div>';
     html += '<div class="point-card__actions">';
     html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
@@ -147,6 +147,13 @@ function renderPointsList() {
   container.querySelectorAll('.btn-del').forEach(function(btn) {
     btn.addEventListener('click', function() { confirmDelete(this.dataset.pid); });
   });
+
+  // Загружаем фото через прокси (обход CORS Drive)
+  if (typeof Photos !== 'undefined' && Photos.setImageSrc) {
+    container.querySelectorAll('.card-photo-thumb').forEach(function(img) {
+      Photos.setImageSrc(img, img.dataset.url);
+    });
+  }
 }
 
 // ── Рендер сотрудников ────────────────────────────────────
@@ -355,21 +362,24 @@ function openEditModal(id) {
   updateWorkerSelects();
   setField('e-worker', p.worker);
 
-  // Показываем текущее фото
+  // Показываем текущее фото через прокси
   var preview = document.getElementById('e-photo-preview');
   if (preview) {
     if (p.photoUrls && p.photoUrls[0]) {
       var img = document.createElement('img');
-      img.src = p.photoUrls[0];
       img.alt = 'фото';
       img.style.cssText = 'max-width:100%;max-height:150px;border-radius:6px;display:block;margin-bottom:6px';
-      img.onerror = function() { this.style.display = 'none'; };
       preview.innerHTML = '';
       preview.appendChild(img);
       var lbl = document.createElement('span');
       lbl.className = 'photo-label';
-      lbl.textContent = 'Текущее фото';
+      lbl.textContent = 'Загрузка фото...';
       preview.appendChild(lbl);
+      if (typeof Photos !== 'undefined' && Photos.setImageSrc) {
+        Photos.setImageSrc(img, p.photoUrls[0]);
+        img.onload = function() { lbl.textContent = 'Текущее фото'; };
+        img.onerror = function() { lbl.textContent = 'Фото недоступно'; };
+      }
     } else {
       preview.innerHTML = '';
     }
