@@ -1,65 +1,89 @@
 /**
  * api.js — единственный модуль для общения с Apps Script.
  *
- * Читаем через JSONP (GET + callback).
- * Пишем через fetch POST (no-cors) + подтверждение через GET.
+ * Чтение: JSONP (GET).
+ * Запись: fetch POST no-cors + подтверждение через JSONP.
  *
- * Зависимости: window.APP_CONFIG.SCRIPT_URL, diagnostics.js
+ * Ключевое правило JSONP:
+ *   window[cbName] живёт до тех пор пока не получен ответ.
+ *   Удаляем его ТОЛЬКО после вызова — не по таймауту, не по onerror.
+ *   Таймаут/onerror только переводят промис в rejected, но callback
+ *   остаётся в window чтобы поглотить запоздалый ответ без ошибки.
  */
 
-const Api = (() => {
-  // ── helpers ──────────────────────────────────────────────
+var Api = (function() {
 
   function scriptUrl() {
     return window.APP_CONFIG && window.APP_CONFIG.SCRIPT_URL;
   }
 
-  /**
-   * JSONP GET — возвращает Promise<data>.
-   * Таймаут 10 сек.
-   */
-  function jsonpGet(params) {
-    return new Promise((resolve, reject) => {
-      const url = scriptUrl();
+  // ── JSONP GET ─────────────────────────────────────────────
+
+  function jsonpGet(params, timeoutMs) {
+    timeoutMs = timeoutMs || 20000;
+    return new Promise(function(resolve, reject) {
+      var url = scriptUrl();
       if (!url) return reject(new Error('SCRIPT_URL не задан'));
 
-      const cbName = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error('JSONP timeout: ' + JSON.stringify(params)));
-      }, 10000);
+      var cbName  = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      var settled = false; // промис уже resolved/rejected?
 
-      function cleanup() {
-        clearTimeout(timeout);
-        delete window[cbName];
-        const el = document.getElementById(cbName);
+      // Таймаут — реджектим промис, но НЕ удаляем window[cbName]
+      var timer = setTimeout(function() {
+        if (!settled) {
+          settled = true;
+          reject(new Error('JSONP timeout: ' + JSON.stringify(params)));
+        }
+        // window[cbName] остаётся — поглотит запоздалый ответ
+      }, timeoutMs);
+
+      // Callback — вызывается когда Apps Script вернул данные
+      window[cbName] = function(data) {
+        // Всегда убираем тег и таймер
+        clearTimeout(timer);
+        var el = document.getElementById(cbName);
         if (el) el.remove();
-      }
+        // Удаляем себя из window
+        delete window[cbName];
 
-      window[cbName] = (data) => {
-        cleanup();
+        if (settled) return; // таймаут уже был — тихо игнорируем
+        settled = true;
+
         if (data && data.error) return reject(new Error(data.error));
         resolve(data);
       };
 
-      const qs = Object.entries({ ...params, callback: cbName })
-        .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v))
-        .join('&');
+      // Строим URL
+      var parts = [];
+      var keys  = Object.keys(params).concat(['callback']);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        var v = k === 'callback' ? cbName : params[k];
+        parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
+      }
 
-      const script = document.createElement('script');
-      script.id  = cbName;
-      script.src = url + '?' + qs;
-      script.onerror = () => { cleanup(); reject(new Error('JSONP script error')); };
+      var script  = document.createElement('script');
+      script.id   = cbName;
+      script.src  = url + '?' + parts.join('&');
+      script.onerror = function() {
+        // Убираем тег, но НЕ удаляем window[cbName] и НЕ делаем clearTimeout
+        // Промис реджектим только если ещё не settled
+        var el = document.getElementById(cbName);
+        if (el) el.remove();
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(new Error('JSONP script load error'));
+        }
+      };
       document.head.appendChild(script);
     });
   }
 
-  /**
-   * POST (no-cors) — данные уходят, но ответ недоступен.
-   * Возвращает Promise<void> — resolve когда fetch завершён.
-   */
+  // ── POST no-cors ─────────────────────────────────────────
+
   function post(body) {
-    const url = scriptUrl();
+    var url = scriptUrl();
     if (!url) return Promise.reject(new Error('SCRIPT_URL не задан'));
     return fetch(url, {
       method:  'POST',
@@ -69,123 +93,121 @@ const Api = (() => {
     });
   }
 
-  /**
-   * POST + подтверждение через GET.
-   * confirmFn() — функция, возвращающая Promise<boolean>.
-   * Делает до maxRetries попыток с интервалом retryMs.
-   */
-  async function postWithConfirm(body, confirmFn, { retryMs = 1500, maxRetries = 4 } = {}) {
-    await post(body);
-    for (let i = 0; i < maxRetries; i++) {
-      await new Promise(r => setTimeout(r, retryMs));
-      try {
-        const confirmed = await confirmFn();
-        if (confirmed) return true;
-      } catch (_) { /* продолжаем */ }
-    }
-    throw new Error('postWithConfirm: не подтверждено после ' + maxRetries + ' попыток');
+  // POST + подтверждение через getPoint polling
+  function postWithConfirm(body, confirmFn, opts) {
+    opts = opts || {};
+    var retryMs    = opts.retryMs    || 2000;
+    var maxRetries = opts.maxRetries || 5;
+    return post(body).then(function() {
+      return poll(confirmFn, retryMs, maxRetries);
+    });
   }
 
-  // ── public API ───────────────────────────────────────────
-
-  async function getPoints() {
-    const data = await jsonpGet({ action: 'getPoints' });
-    return data.points || [];
-  }
-
-  async function getWorkers() {
-    const data = await jsonpGet({ action: 'getWorkers' });
-    return data.workers || [];
-  }
-
-  async function getSchemes() {
-    const data = await jsonpGet({ action: 'getSchemes' });
-    return data.schemes || [];
-  }
-
-  /** Проверяем что точка с id существует на сервере */
-  async function confirmPoint(id) {
-    const data = await jsonpGet({ action: 'getPoint', id });
-    return !!(data.point && data.point.id);
-  }
-
-  async function createPoint(point) {
-    return postWithConfirm(
-      { action: 'createPoint', point },
-      () => confirmPoint(point.id)
-    );
-  }
-
-  async function updatePoint(point) {
-    return postWithConfirm(
-      { action: 'updatePoint', point },
-      () => confirmPoint(point.id)
-    );
-  }
-
-  async function deletePoint(id) {
-    return postWithConfirm(
-      { action: 'deletePoint', id },
-      async () => {
-        const data = await jsonpGet({ action: 'getPoint', id });
-        return !data.point; // подтверждено если точки нет
+  function poll(fn, intervalMs, maxAttempts) {
+    return new Promise(function(resolve, reject) {
+      var attempt = 0;
+      function next() {
+        attempt++;
+        fn().then(function(ok) {
+          if (ok) return resolve(true);
+          if (attempt >= maxAttempts) return reject(new Error('Не подтверждено за ' + maxAttempts + ' попыток'));
+          setTimeout(next, intervalMs);
+        }).catch(function() {
+          if (attempt >= maxAttempts) return reject(new Error('Polling error'));
+          setTimeout(next, intervalMs);
+        });
       }
+      setTimeout(next, intervalMs); // первая попытка через intervalMs
+    });
+  }
+
+  // ── Публичные методы чтения ───────────────────────────────
+
+  function getPoints() {
+    return jsonpGet({ action: 'getPoints' }).then(function(d) { return d.points || []; });
+  }
+
+  function getWorkers() {
+    return jsonpGet({ action: 'getWorkers' }).then(function(d) { return d.workers || []; });
+  }
+
+  function getSchemes() {
+    return jsonpGet({ action: 'getSchemes' }).then(function(d) { return d.schemes || []; });
+  }
+
+  function getPoint(id) {
+    return jsonpGet({ action: 'getPoint', id: id }).then(function(d) { return d.point || null; });
+  }
+
+  function getImage(fileId) {
+    return jsonpGet({ action: 'getImage', fileId: fileId }, 30000); // дольше для больших фото
+  }
+
+  function ping() {
+    return jsonpGet({ action: 'ping' }).then(function(d) { return d.ok === true; });
+  }
+
+  // ── Публичные методы записи ───────────────────────────────
+
+  function createPoint(point) {
+    return postWithConfirm(
+      { action: 'createPoint', point: point },
+      function() { return getPoint(point.id).then(function(p) { return !!p; }); }
     );
   }
 
-  async function saveWorker(worker) {
-    await post({ action: 'saveWorker', worker });
-    return true;
+  function updatePoint(point) {
+    return postWithConfirm(
+      { action: 'updatePoint', point: point },
+      function() { return getPoint(point.id).then(function(p) { return !!p; }); }
+    );
   }
 
-  async function deleteWorker(id) {
-    await post({ action: 'deleteWorker', id });
-    return true;
+  function deletePoint(id) {
+    return postWithConfirm(
+      { action: 'deletePoint', id: id },
+      function() { return getPoint(id).then(function(p) { return !p; }); }
+    );
   }
 
-  /** Загрузка фото: base64 строка (без data: префикса) */
-  async function uploadPhoto(pointId, fileName, base64, mimeType) {
-    await post({ action: 'uploadPhoto', pointId, fileName, base64, mimeType });
-    // Подтверждение: перечитываем точку и проверяем photoUrls
-    for (let i = 0; i < 4; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      try {
-        const pts = await getPoints();
-        const p = pts.find(x => x.id === pointId);
-        if (p && p.photoUrls && p.photoUrls.length > 0) return true;
-      } catch (_) {}
-    }
-    throw new Error('uploadPhoto: фото не подтверждено');
+  function saveWorker(worker) {
+    return post({ action: 'saveWorker', worker: worker });
   }
 
-  /** Загрузка схемы: base64 строка */
-  async function uploadScheme(params) {
-    await post({ action: 'uploadScheme', ...params });
-    return true;
+  function deleteWorker(id) {
+    return post({ action: 'deleteWorker', id: id });
   }
 
-  /** Прокси-загрузка изображения с Drive (обход CORS) */
-  async function getImage(fileId) {
-    const data = await jsonpGet({ action: 'getImage', fileId });
-    if (!data.ok) throw new Error(data.error || 'getImage failed');
-    return { base64: data.base64, mimeType: data.mimeType };
+  function uploadPhoto(pointId, fileName, base64, mimeType) {
+    return post({ action: 'uploadPhoto', pointId: pointId, fileName: fileName,
+                  base64: base64, mimeType: mimeType });
   }
 
-  async function ping() {
-    const data = await jsonpGet({ action: 'ping' });
-    return data.ok === true;
+  function deletePhoto(pointId) {
+    return post({ action: 'deletePhoto', pointId: pointId });
   }
 
-  async function deletePhoto(pointId) {
-    await post({ action: 'deletePhoto', pointId });
-    return true;
+  function uploadScheme(params) {
+    return post({ action: 'uploadScheme',
+                  weekKey: params.weekKey, fileName: params.fileName,
+                  base64: params.base64, mimeType: params.mimeType,
+                  uploadedBy: params.uploadedBy });
   }
 
   return {
-    getPoints, getWorkers, getSchemes,
-    createPoint, updatePoint, deletePoint,
-    saveWorker, deleteWorker,
-    uploadPhoto, uploadScheme, deletePhoto,
-    getImage, ping,
+    getPoints:    getPoints,
+    getWorkers:   getWorkers,
+    getSchemes:   getSchemes,
+    getPoint:     getPoint,
+    getImage:     getImage,
+    ping:         ping,
+    createPoint:  createPoint,
+    updatePoint:  updatePoint,
+    deletePoint:  deletePoint,
+    saveWorker:   saveWorker,
+    deleteWorker: deleteWorker,
+    uploadPhoto:  uploadPhoto,
+    deletePhoto:  deletePhoto,
+    uploadScheme: uploadScheme,
   };
 })();

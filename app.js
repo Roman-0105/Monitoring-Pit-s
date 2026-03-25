@@ -11,6 +11,7 @@ window.APP_CONFIG = {
 var AppState = {
   currentTab:     'points',
   editingPointId: null,
+  syncing:        false,  // блокировка параллельных синхронизаций
 };
 
 // ── Инициализация ─────────────────────────────────────────
@@ -50,6 +51,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // ── Синхронизация ─────────────────────────────────────────
 function syncAll() {
   if (!navigator.onLine) return;
+  if (AppState.syncing) return; // не запускаем параллельно
+  AppState.syncing = true;
   Points.flushQueue().then(function() {
     return Promise.all([Points.load(), Workers.load()]);
   }).then(function() {
@@ -58,6 +61,8 @@ function syncAll() {
     Diagnostics.clearError();
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
+  }).then(function() {
+    AppState.syncing = false; // всегда сбрасываем
   });
 }
 
@@ -271,6 +276,7 @@ function saveNewPoint() {
   var data = readFormFields('f');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
   var photoFile = Photos.getFile('f-photo');
+  AppState.syncing = true; // блокируем фоновую синхронизацию
   showLoader('Сохранение...');
   Points.create(data).then(function(savedPoint) {
     if (!photoFile || !savedPoint || !savedPoint.id) return null;
@@ -288,10 +294,12 @@ function saveNewPoint() {
     renderPointsList();
     switchTab('points');
     Diagnostics.set('pointsLoaded', Points.getList().length);
+    AppState.syncing = false;
     hideLoader();
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
     alert('Ошибка: ' + err.message);
+    AppState.syncing = false;
     hideLoader();
   });
 }
@@ -374,6 +382,7 @@ function saveEditedPoint() {
   showLoader('Сохранение...');
   closeEditModal();
 
+  AppState.syncing = true; // блокируем фоновую синхронизацию
   var chain;
   if (photoFile) {
     showLoader('Загрузка фото...');
@@ -397,10 +406,12 @@ function saveEditedPoint() {
   }).then(function() {
     renderPointsList();
     Diagnostics.set('pointsLoaded', Points.getList().length);
+    AppState.syncing = false;
     hideLoader();
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
     alert('Ошибка: ' + err.message);
+    AppState.syncing = false;
     hideLoader();
   });
 }
@@ -409,9 +420,9 @@ function deletePointPhoto() {
   if (!AppState.editingPointId) return;
   if (!confirm('Удалить фото этой точки?')) return;
   var id = AppState.editingPointId;
+  AppState.syncing = true;
   showLoader('Удаление фото...');
 
-  // Сначала удаляем файл на сервере, потом обновляем точку, потом UI
   Api.deletePhoto(id).then(function() {
     // Ждём 1.5 сек — Apps Script завершает запись
     return new Promise(function(r) { setTimeout(r, 1500); });
@@ -426,9 +437,11 @@ function deletePointPhoto() {
     var delBtn = document.getElementById('e-delete-photo-btn');
     if (delBtn) delBtn.style.display = 'none';
     renderPointsList();
+    AppState.syncing = false;
     hideLoader();
   }).catch(function(err) {
     Diagnostics.setError('photo', 'Удаление фото: ' + err.message);
+    AppState.syncing = false;
     hideLoader();
   });
 }
