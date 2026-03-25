@@ -376,18 +376,19 @@ function saveEditedPoint() {
 
   var chain;
   if (photoFile) {
-    // Сначала атомарно заменяем фото на сервере — получаем новый URL
     showLoader('Загрузка фото...');
     chain = Photos.uploadAndReplace(photoFile, id).then(function(newUrl) {
+      // Используем URL из подтверждённого ответа сервера
       data.photoUrls = newUrl ? [newUrl] : [];
       return Points.update(id, data);
     }).catch(function(e) {
-      console.warn('Photo upload:', e.message);
-      // Фото не загрузилось — сохраняем остальные поля без изменения photoUrls
+      Diagnostics.setError('photo', 'Загрузка фото: ' + e.message);
+      // Фото не загрузилось — обновляем только текстовые поля
+      // photoUrls не передаём — сервер сохранит текущее значение
       return Points.update(id, data);
     });
   } else {
-    // Фото не меняем — updatePoint сам возьмёт photoUrls из Sheets
+    // Фото не меняем — не передаём photoUrls, сервер возьмёт из Sheets
     chain = Points.update(id, data);
   }
 
@@ -407,19 +408,29 @@ function saveEditedPoint() {
 function deletePointPhoto() {
   if (!AppState.editingPointId) return;
   if (!confirm('Удалить фото этой точки?')) return;
-  var id     = AppState.editingPointId;
-  var preview = document.getElementById('e-photo-preview');
-  if (preview) preview.innerHTML = '';
-  var delBtn  = document.getElementById('e-delete-photo-btn');
-  if (delBtn)  delBtn.style.display = 'none';
+  var id = AppState.editingPointId;
   showLoader('Удаление фото...');
-  Api.deletePhoto(id).catch(function(e) { console.warn(e); });
-  Points.update(id, { photoUrls: [] }).then(function() {
+
+  // Сначала удаляем файл на сервере, потом обновляем точку, потом UI
+  Api.deletePhoto(id).then(function() {
+    // Ждём 1.5 сек — Apps Script завершает запись
+    return new Promise(function(r) { setTimeout(r, 1500); });
+  }).then(function() {
+    return Points.update(id, { photoUrls: [] });
+  }).then(function() {
     return Points.load();
   }).then(function() {
+    // Обновляем UI только после подтверждения
+    var preview = document.getElementById('e-photo-preview');
+    if (preview) preview.innerHTML = '';
+    var delBtn = document.getElementById('e-delete-photo-btn');
+    if (delBtn) delBtn.style.display = 'none';
     renderPointsList();
     hideLoader();
-  }).catch(function() { hideLoader(); });
+  }).catch(function(err) {
+    Diagnostics.setError('photo', 'Удаление фото: ' + err.message);
+    hideLoader();
+  });
 }
 
 // ── Удаление точки ────────────────────────────────────────

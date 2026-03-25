@@ -49,11 +49,13 @@ var Photos = (function() {
     Diagnostics.set('photoStatus', 'uploading');
     return compress(file).then(function(base64) {
       var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
+      // POST: сервер атомарно удаляет старое и загружает новое
       return Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
     }).then(function() {
-      // Ждём 3 сек и читаем актуальный URL из Sheets
-      return new Promise(function(r) { setTimeout(r, 3000); });
+      // Ждём 2 сек чтобы Apps Script завершил запись
+      return new Promise(function(r) { setTimeout(r, 2000); });
     }).then(function() {
+      // Читаем актуальный URL из Sheets
       return Api.getPoints();
     }).then(function(points) {
       var p   = points.find(function(x) { return x.id === pointId; });
