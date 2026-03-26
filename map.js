@@ -90,8 +90,9 @@ var MapModule = (function() {
 
   // ── Пиксели → локальные (из клика) ──────────────────────
   function pixelToLocal(px, py, imgW, imgH) {
-    var xLocal = BOUNDS.xMin + (1 - py/imgH)*(BOUNDS.xMax - BOUNDS.xMin);
-    var yLocal = BOUNDS.yMin + (px/imgW)*(BOUNDS.yMax - BOUNDS.yMin);
+    // Обратное преобразование к toPixel
+    var xLocal = BOUNDS.xMin + (px / imgW) * (BOUNDS.xMax - BOUNDS.xMin);
+    var yLocal = BOUNDS.yMax - (py / imgH) * (BOUNDS.yMax - BOUNDS.yMin);
     return {
       x: parseFloat(xLocal.toFixed(4)),
       y: parseFloat(yLocal.toFixed(4)),
@@ -100,8 +101,10 @@ var MapModule = (function() {
 
   // ── Локальные → пиксели ──────────────────────────────────
   function toPixel(xLocal, yLocal, imgW, imgH) {
-    var px = (yLocal - BOUNDS.yMin)/(BOUNDS.yMax - BOUNDS.yMin)*imgW;
-    var py = (1 - (xLocal - BOUNDS.xMin)/(BOUNDS.xMax - BOUNDS.xMin))*imgH;
+    // X растёт слева направо (45850→47350)
+    // Y убывает сверху вниз  (17350→15800)
+    var px = (xLocal - BOUNDS.xMin) / (BOUNDS.xMax - BOUNDS.xMin) * imgW;
+    var py = (BOUNDS.yMax - yLocal) / (BOUNDS.yMax - BOUNDS.yMin) * imgH;
     return { px: px, py: py };
   }
 
