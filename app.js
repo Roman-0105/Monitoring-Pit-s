@@ -581,7 +581,8 @@ function renderSettingsSchemes() {
     html += '<div class="scheme-item">';
     html += '<div>';
     html += '<div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
-    html += '<div class="scheme-item__date">' + formatDate(s.uploadedAt) + '</div>';
+    var uploadDate = (s.uploadedAt && s.uploadedAt !== 'undefined') ? formatDate(s.uploadedAt) : '—';
+    html += '<div class="scheme-item__date">' + uploadDate + '</div>';
     html += '</div>';
     if (isCurrent) html += '<span class="scheme-item__current">✅ Текущая</span>';
     html += '</div>';

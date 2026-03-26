@@ -27,6 +27,42 @@ var Schemes = (function() {
     return weekKey;
   }
 
+  // ── Сжатие схемы ─────────────────────────────────────────
+  function compressScheme(file) {
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function() {
+        URL.revokeObjectURL(url);
+        var w = img.width;
+        var h = img.height;
+        var MAX = 2048; // схема крупнее фото
+        if (w > MAX || h > MAX) {
+          if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+          else        { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width  = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve({ base64: dataUrl.split(',')[1], mime: 'image/jpeg' });
+      };
+      img.onerror = function() {
+        URL.revokeObjectURL(url);
+        // Если не удалось сжать — отдаём как есть
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var d = e.target.result;
+          resolve({ base64: d.split(',')[1], mime: d.split(';')[0].split(':')[1] });
+        };
+        reader.onerror = function() { reject(new Error('Ошибка чтения файла')); };
+        reader.readAsDataURL(file);
+      };
+      img.src = url;
+    });
+  }
+
   // ── Загрузка списка с сервера ─────────────────────────────
 
   function load() {
@@ -63,17 +99,7 @@ var Schemes = (function() {
       setTimeout(function() { reject(new Error('Таймаут загрузки схемы')); }, 40000);
     });
 
-    var uploadP = new Promise(function(resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function(e) {
-        var dataUrl = e.target.result;
-        var base64  = dataUrl.split(',')[1];
-        var mime    = dataUrl.split(';')[0].split(':')[1];
-        resolve({ base64: base64, mime: mime });
-      };
-      reader.onerror = function() { reject(new Error('Ошибка чтения файла')); };
-      reader.readAsDataURL(file);
-    }).then(function(data) {
+    var uploadP = compressScheme(file).then(function(data) {
       return Api.uploadScheme({
         weekKey:    weekKey,
         fileName:   'scheme_' + weekKey + '_' + Date.now() + '.png',
@@ -82,13 +108,12 @@ var Schemes = (function() {
         uploadedBy: deviceId || Storage.getDeviceId(),
       });
     }).then(function() {
+      // POST отправлен — сбрасываем кэш и сразу считаем успехом
+      // Список схем обновится при следующей синхронизации (через 30 сек)
       delete _imgCache[weekKey];
-      // Ждём 4 сек и перечитываем
-      return new Promise(function(r) { setTimeout(r, 4000); });
-    }).then(function() {
-      return load();
-    }).then(function() {
       Diagnostics.set('schemeStatus', 'loaded');
+      // Через 5 сек тихо обновляем список схем в фоне
+      setTimeout(function() { load(); }, 5000);
     });
 
     return Promise.race([uploadP, timeoutP]).catch(function(err) {
