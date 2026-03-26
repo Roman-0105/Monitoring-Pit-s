@@ -148,7 +148,7 @@ function renderPointsList() {
       html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + xStr + '  Y: ' + yStr + '</div>';
     }
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
-    if (p.xLocal != null) html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>';
+
     html += '</div>';
     html += '<div class="point-card__actions">';
     html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
