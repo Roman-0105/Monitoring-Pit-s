@@ -135,6 +135,7 @@ function renderPointsList() {
     }
     if (p.domain)  html += '<div>📍 ' + p.domain + '</div>';
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
+    if (p.xLocal != null) html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>';
     html += '</div>';
     html += '<div class="point-card__actions">';
     html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
@@ -286,22 +287,34 @@ function saveNewPoint() {
   var data = readFormFields('f');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
   var photoFile = Photos.getFile('f-photo');
-  AppState.syncing = true; // блокируем фоновую синхронизацию
+  AppState.syncing = true;
   showLoader('Сохранение...');
+
+  var createdPoint = null;
+
   Points.create(data).then(function(savedPoint) {
+    createdPoint = savedPoint;
     if (!photoFile || !savedPoint || !savedPoint.id) return null;
     showLoader('Загрузка фото...');
-    return Photos.uploadAndReplace(photoFile, savedPoint.id).then(function(url) {
+
+    // Ждём 3 сек чтобы Apps Script точно записал строку createPoint
+    return new Promise(function(r) { setTimeout(r, 3000); }).then(function() {
+      return Photos.uploadAndReplace(photoFile, savedPoint.id);
+    }).then(function(url) {
       if (url) {
-        return Points.update(savedPoint.id, { photoUrls: [url] });
+        // Гарантированно записываем URL через updatePoint
+        return Points.update(savedPoint.id, { photoUrls: [url] }).then(function() {
+          return url;
+        });
       }
-      // url=null — таймаут или ошибка, точка сохранена без фото
+      return null;
     });
   }).then(function() {
     resetAddForm();
     return Points.load();
   }).then(function() {
     renderPointsList();
+    if (_mapSchemeImg) redrawMap();
     switchTab('points');
     Diagnostics.set('pointsLoaded', Points.getList().length);
     AppState.syncing = false;
@@ -412,19 +425,24 @@ function closeEditModal() {
 }
 
 function saveEditedPoint() {
-  var isMapAdd  = !AppState.editingPointId &&
-                  document.getElementById('edit-form')._mapCoords;
+  var form      = document.getElementById('edit-form');
+  var mapCoords = form ? form._mapCoords : null;
+  var isMapAdd  = !AppState.editingPointId && !!mapCoords;
   var id        = AppState.editingPointId;
   var data      = readFormFields('e');
   var photoFile = Photos.getFile('e-photo');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
 
-  // Если добавляем с карты — берём координаты из клика
-  if (isMapAdd && document.getElementById('edit-form')._mapCoords) {
-    var mc = document.getElementById('edit-form')._mapCoords;
-    data.xLocal = mc.xLocal;
-    data.yLocal = mc.yLocal;
-    document.getElementById('edit-form')._mapCoords = null;
+  // Если добавляем с карты — подставляем координаты
+  if (mapCoords) {
+    if (data.xLocal == null) data.xLocal = mapCoords.xLocal;
+    if (data.yLocal == null) data.yLocal = mapCoords.yLocal;
+  }
+  // Если есть GPS но нет xLocal — вычисляем
+  if ((data.xLocal == null || data.yLocal == null) && data.lat && data.lon &&
+      typeof MapModule !== 'undefined') {
+    var sk = MapModule.wgs84ToSK42(data.lat, data.lon);
+    data.xLocal = sk.x; data.yLocal = sk.y;
   }
   showLoader('Сохранение...');
   closeEditModal();
@@ -705,10 +723,30 @@ function initMapInteraction(canvas) {
     canvas.style.cursor = 'grabbing';
   });
   canvas.addEventListener('mousemove', function(e) {
-    if (!_mapDragging || _mapAddMode) return;
-    _mapOffX = e.clientX - _mapDragStartX;
-    _mapOffY = e.clientY - _mapDragStartY;
-    redrawMap();
+    var rect = canvas.getBoundingClientRect();
+    var cx   = e.clientX - rect.left;
+    var cy   = e.clientY - rect.top;
+
+    if (_mapDragging && !_mapAddMode) {
+      _mapOffX = e.clientX - _mapDragStartX;
+      _mapOffY = e.clientY - _mapDragStartY;
+      redrawMap();
+      hideMapTooltip();
+      return;
+    }
+
+    // Tooltip при наведении на точку
+    if (!_mapAddMode && _mapSchemeImg && typeof MapModule !== 'undefined') {
+      var imgX = (cx - _mapOffX) / _mapScale;
+      var imgY = (cy - _mapOffY) / _mapScale;
+      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      if (p) {
+        showMapTooltip(p, e.clientX, e.clientY);
+      } else {
+        hideMapTooltip();
+      }
+    }
   });
   canvas.addEventListener('mouseup', function() {
     _mapDragging = false;
@@ -746,6 +784,7 @@ function initMapInteraction(canvas) {
   // ── Клик — добавить точку или открыть карточку ───────────
   canvas.addEventListener('click', function(e) {
     if (_mapDragging) return;
+    hideMapTooltip();
     var rect   = canvas.getBoundingClientRect();
     var cx     = e.clientX - rect.left;
     var cy     = e.clientY - rect.top;
@@ -867,8 +906,8 @@ function openAddPointModal(xLocal, yLocal) {
   updateWorkerSelects();
 
   // Заполняем местные координаты
-  setField('e-xlocal', xLocal);
-  setField('e-ylocal', yLocal);
+  setField('e-xlocal', typeof xLocal === 'number' ? xLocal.toFixed(4) : xLocal);
+  setField('e-ylocal', typeof yLocal === 'number' ? yLocal.toFixed(4) : yLocal);
 
   // Обратный пересчёт: СК-42 → WGS-84
   var wgsLat = '', wgsLon = '';
@@ -884,7 +923,7 @@ function openAddPointModal(xLocal, yLocal) {
 
   // Подсказка с координатами
   var coordInfo = document.getElementById('e-map-coord-info');
-  if (coordInfo) coordInfo.textContent = 'X: ' + xLocal + '  Y: ' + yLocal + ' (из карты)';
+  if (coordInfo) coordInfo.textContent = 'X: ' + (typeof xLocal === 'number' ? xLocal.toFixed(4) : xLocal) + '  Y: ' + (typeof yLocal === 'number' ? yLocal.toFixed(4) : yLocal) + ' (из карты)';
 
   var preview = document.getElementById('e-photo-preview');
   if (preview) preview.innerHTML = '';
@@ -908,6 +947,44 @@ function openAddPointModal(xLocal, yLocal) {
 }
 
 
+// ── Tooltip при наведении ────────────────────────────────
+var _tooltipEl = null;
+
+function showMapTooltip(p, clientX, clientY) {
+  if (!_tooltipEl) {
+    _tooltipEl = document.createElement('div');
+    _tooltipEl.className = 'map-tooltip';
+    document.body.appendChild(_tooltipEl);
+  }
+  var color = (typeof MapModule !== 'undefined')
+    ? (MapModule.STATUS_COLORS[p.status] || '#666') : '#666';
+
+  _tooltipEl.innerHTML =
+    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
+    '<span style="width:10px;height:10px;border-radius:50%;background:' + color +
+    ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.3);flex-shrink:0"></span>' +
+    '<strong>#' + (p.pointNumber || '?') + '</strong>' +
+    '<span style="color:' + color + ';font-size:11px">' + (p.status || '') + '</span>' +
+    '</div>' +
+    (p.worker    ? '<div>👤 ' + p.worker + '</div>' : '') +
+    (p.flowRate != null ? '<div>💧 ' + p.flowRate + ' л/с</div>' : '') +
+    (p.intensity ? '<div>' + p.intensity + '</div>' : '') +
+    '<div style="color:var(--gray-600);font-size:11px">' + formatDate(p.createdAt) + '</div>';
+
+  var tw = 180, th = 90;
+  var left = clientX + 12;
+  var top  = clientY - 10;
+  if (left + tw > window.innerWidth)  left = clientX - tw - 12;
+  if (top  + th > window.innerHeight) top  = clientY - th - 10;
+  _tooltipEl.style.left    = left + 'px';
+  _tooltipEl.style.top     = top  + 'px';
+  _tooltipEl.style.display = 'block';
+}
+
+function hideMapTooltip() {
+  if (_tooltipEl) _tooltipEl.style.display = 'none';
+}
+
 function showMapPointCard(p) {
   var existing = document.getElementById('map-point-card');
   if (existing) existing.remove();
@@ -929,6 +1006,7 @@ function showMapPointCard(p) {
     (p.wall       ? '<div>🏔 ' + p.wall      + '</div>' : '') +
     (p.domain     ? '<div>📍 ' + p.domain    + '</div>' : '') +
     (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
+    (p.xLocal != null ? '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>' : '') +
     '</div>' +
     '<div class="map-point-card__actions">' +
     '<button class="btn btn-sm btn-outline map-card-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
@@ -1044,8 +1122,8 @@ function getGPSForForm(prefix) {
     // Пересчитываем в локальные
     if (typeof MapModule !== 'undefined') {
       var sk = MapModule.wgs84ToSK42(lat, lon);
-      setField(prefix + '-xlocal', sk.x);
-      setField(prefix + '-ylocal', sk.y);
+      setField(prefix + '-xlocal', typeof sk.x === 'number' ? sk.x.toFixed(4) : sk.x);
+      setField(prefix + '-ylocal', typeof sk.y === 'number' ? sk.y.toFixed(4) : sk.y);
       var info = document.getElementById(prefix + '-map-coord-info');
       if (info) info.textContent = 'X: ' + sk.x + '  Y: ' + sk.y + ' (из GPS)';
     }
@@ -1062,8 +1140,8 @@ function recalcLocalCoords(prefix) {
   var lon = parseFloatOrNull(getField(prefix + '-lon'));
   if (lat && lon && typeof MapModule !== 'undefined') {
     var sk = MapModule.wgs84ToSK42(lat, lon);
-    setField(prefix + '-xlocal', sk.x);
-    setField(prefix + '-ylocal', sk.y);
+    setField(prefix + '-xlocal', typeof sk.x === 'number' ? sk.x.toFixed(4) : sk.x);
+    setField(prefix + '-ylocal', typeof sk.y === 'number' ? sk.y.toFixed(4) : sk.y);
     var info = document.getElementById(prefix + '-map-coord-info');
     if (info) info.textContent = 'X: ' + sk.x + '  Y: ' + sk.y;
   }
@@ -1105,6 +1183,12 @@ function initials(name) {
 function escAttr(s) {
   return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
 }
+function formatCoord(v) {
+  if (v == null || v === '') return '—';
+  var n = parseFloat(v);
+  return isNaN(n) ? String(v) : n.toFixed(4);
+}
+
 function formatDate(iso) {
   if (!iso) return '—';
   try {

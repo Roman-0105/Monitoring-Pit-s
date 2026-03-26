@@ -79,7 +79,10 @@ var MapModule = (function() {
     var yLocal = y - zone * 1000000 - 500000 + OFF_Y;
     var xLocal = x - OFF_X;
 
-    return { x: Math.round(xLocal), y: Math.round(yLocal) };
+    return {
+      x: Math.round(xLocal * 10000) / 10000,
+      y: Math.round(yLocal * 10000) / 10000,
+    };
   }
 
   // ── Координаты → пиксели ──────────────────────────────────
@@ -166,7 +169,10 @@ var MapModule = (function() {
   function pixelToLocal(px, py, imgW, imgH) {
     var xLocal = BOUNDS.xMin + (1 - py / imgH) * (BOUNDS.xMax - BOUNDS.xMin);
     var yLocal = BOUNDS.yMin + (px / imgW)     * (BOUNDS.yMax - BOUNDS.yMin);
-    return { x: Math.round(xLocal), y: Math.round(yLocal) };
+    return {
+      x: Math.round(xLocal * 10000) / 10000,
+      y: Math.round(yLocal * 10000) / 10000,
+    };
   }
 
   // ── СК-42 → WGS-84 (приближённый обратный конвертер) ────
