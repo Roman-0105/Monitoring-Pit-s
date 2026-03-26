@@ -160,6 +160,8 @@ var Api = (function() {
    * При ошибке бросает Error (не возвращает null).
    */
   function uploadPhotoConfirmed(pointId, fileName, base64, mimeType) {
+    // POST — Apps Script загружает файл в Drive и пишет URL в Sheets.
+    // fetch no-cors завершается при отправке, независимо от Apps Script.
     return post({
       action:   'uploadPhoto',
       pointId:  pointId,
@@ -167,17 +169,16 @@ var Api = (function() {
       base64:   base64,
       mimeType: mimeType || 'image/jpeg',
     }).then(function() {
-      // Polling: ждём пока getPoint вернёт непустой photoUrls
+      // Ждём Apps Script: polling каждые 3 сек, до 10 попыток (30 сек)
       return poll(function() {
         return getPoint(pointId).then(function(p) {
           return !!(p && p.photoUrls && p.photoUrls[0]);
         });
-      }, 2000, 8);
+      }, 3000, 10);
     }).then(function() {
-      // Читаем актуальный URL
       return getPoint(pointId).then(function(p) {
         if (!p || !p.photoUrls || !p.photoUrls[0]) {
-          throw new Error('URL фото не записан в Sheets');
+          throw new Error('URL фото не записан в Sheets после ожидания');
         }
         return p.photoUrls[0];
       });

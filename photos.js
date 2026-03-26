@@ -15,8 +15,8 @@ var Photos = (function() {
   // ── Сжатие ───────────────────────────────────────────────
 
   function compress(file, maxSize, quality) {
-    maxSize = maxSize || 1600;
-    quality = quality || 0.85;
+    maxSize = maxSize || 1200;  // уменьшено с 1600 — меньше payload
+    quality = quality || 0.80;
     return new Promise(function(resolve, reject) {
       var img = new Image();
       var url = URL.createObjectURL(file);
@@ -54,7 +54,7 @@ var Photos = (function() {
 
     Diagnostics.set('photoStatus', 'uploading');
 
-    var TIMEOUT_MS = 40000;
+    var TIMEOUT_MS = 70000;  // 30 сек polling + 40 сек запас
     var timeoutP   = new Promise(function(_, reject) {
       setTimeout(function() {
         reject(new Error('Таймаут загрузки фото (40 сек)'));
