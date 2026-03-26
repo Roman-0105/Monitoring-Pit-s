@@ -380,12 +380,13 @@ function closeEditModal() {
   AppState.editingPointId = null;
   var form = document.getElementById('edit-form');
   if (form) form._mapCoords = null;
-  // Сбрасываем заголовок модала
   var title = document.getElementById('edit-modal-title');
   if (title) title.textContent = 'Редактирование';
-  var submitBtn = document.getElementById('edit-form') &&
-                  document.getElementById('edit-form').querySelector('[type=submit]');
+  var submitBtn = form && form.querySelector('[type=submit]');
   if (submitBtn) submitBtn.textContent = 'Сохранить изменения';
+  // Убираем строку с местными координатами
+  var coordInfo = document.getElementById('e-map-coord-info');
+  if (coordInfo) coordInfo.textContent = '';
 }
 
 function saveEditedPoint() {
@@ -791,7 +792,6 @@ function toggleMapAddMode() {
 }
 
 function openAddPointModal(xLocal, yLocal) {
-  // Выключаем режим добавления
   _mapAddMode = false;
   var canvas = document.getElementById('map-canvas');
   var btn    = document.getElementById('btn-map-add-point');
@@ -800,37 +800,65 @@ function openAddPointModal(xLocal, yLocal) {
   if (btn)    { btn.style.background = ''; btn.style.color = ''; }
   if (hint)   hint.style.display = 'none';
 
-  // Открываем модал редактирования как форму добавления
   AppState.editingPointId = null;
-  document.getElementById('edit-modal-title').textContent = 'Новая точка';
+
   // Очищаем поля
-  ['e-num','e-lat','e-lon','e-intensity','e-flowrate','e-color',
-   'e-wall','e-domain','e-comment'].forEach(function(id) { setField(id, ''); });
+  ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-domain','e-comment']
+    .forEach(function(id) { setField(id, ''); });
   setField('e-status', 'Новая');
   updateWorkerSelects();
 
-  // Вычисляем GPS из локальных координат (обратная задача — приблизительно)
-  // Заполняем только локальные координаты — GPS не вычисляем обратно
-  // xLocal/yLocal передадим при сохранении
+  // Вычисляем GPS из местных координат СК-42 → WGS-84
+  var wgsLat = '', wgsLon = '';
+  if (typeof MapModule !== 'undefined' && MapModule.sk42ToWgs84) {
+    var wgs = MapModule.sk42ToWgs84(xLocal, yLocal);
+    if (wgs && wgs.lat) {
+      wgsLat = wgs.lat.toFixed(7);
+      wgsLon = wgs.lon.toFixed(7);
+    }
+  }
+  setField('e-lat', wgsLat);
+  setField('e-lon', wgsLon);
 
   var preview = document.getElementById('e-photo-preview');
   if (preview) preview.innerHTML = '';
   Photos.clearInput('e-photo', 'e-new-photo-preview');
-
   var delBtn = document.getElementById('e-delete-photo-btn');
   if (delBtn) delBtn.style.display = 'none';
 
-  // Меняем submit — создаём точку с xLocal/yLocal из карты
+  // Показываем местные координаты в информационной строке
+  var coordInfo = document.getElementById('e-map-coord-info');
+  if (!coordInfo) {
+    coordInfo = document.createElement('p');
+    coordInfo.id = 'e-map-coord-info';
+    coordInfo.className = 'form-hint';
+    coordInfo.style.cssText = 'margin-top:4px;color:var(--blue);font-weight:600';
+    var latGroup = document.getElementById('e-lat');
+    if (latGroup && latGroup.parentNode && latGroup.parentNode.parentNode) {
+      latGroup.parentNode.parentNode.appendChild(coordInfo);
+    }
+  }
+  if (coordInfo) {
+    coordInfo.textContent = 'X (СК-42): ' + xLocal + '  Y (СК-42): ' + yLocal;
+  }
+
+  // Сохраняем местные координаты
   var form = document.getElementById('edit-form');
   form._mapCoords = { xLocal: xLocal, yLocal: yLocal };
+
+  document.getElementById('edit-modal-title').textContent = 'Новая точка на карте';
+  var submitBtn = document.querySelector('#edit-form [type=submit]');
+  if (submitBtn) submitBtn.textContent = 'Сохранить точку';
 
   document.getElementById('edit-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
 
-  // Обновляем заголовок и кнопку
-  document.getElementById('edit-modal-title').textContent = 'Новая точка на карте';
-  document.getElementById('edit-form').querySelector('[type=submit]').textContent = 'Сохранить точку';
+  setTimeout(function() {
+    var f = document.getElementById('e-num');
+    if (f) f.focus();
+  }, 150);
 }
+
 
 function showMapPointCard(p) {
   var existing = document.getElementById('map-point-card');
