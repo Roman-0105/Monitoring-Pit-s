@@ -19,8 +19,9 @@
   <nav class="tab-bar">
     <button class="tab-btn active" data-tab="points">📋 Точки</button>
     <button class="tab-btn"        data-tab="add">➕ Добавить</button>
-    <button class="tab-btn"        data-tab="workers">👤 Сотрудники</button>
-    <button class="tab-btn"        data-tab="diag">🔧 Диагностика</button>
+    <button class="tab-btn"        data-tab="map">🗺 Карта</button>
+    <button class="tab-btn"        data-tab="settings">⚙️ Настройки</button>
+    <button class="tab-btn"        data-tab="diag">🔧 Диаг.</button>
   </nav>
 
   <!-- Список точек -->
@@ -136,6 +137,49 @@
     <div class="card">
       <div class="card-title">Выбор сотрудника</div>
       <div id="worker-grid" class="worker-grid"></div>
+    </div>
+  </div>
+
+  <!-- Карта -->
+  <div class="page" id="page-map">
+    <div id="map-scheme-wrap" class="map-scheme-wrap">
+      <div id="map-no-scheme" class="map-no-scheme">
+        <p>Схема не загружена</p>
+        <p class="form-hint">Загрузи схему в разделе Настройки</p>
+      </div>
+      <canvas id="map-canvas"></canvas>
+    </div>
+    <div class="map-legend" id="map-week-label"></div>
+  </div>
+
+  <!-- Настройки -->
+  <div class="page" id="page-settings">
+    <div class="card">
+      <div class="card-title">Схема карьера</div>
+      <p class="form-hint" style="margin-bottom:12px">
+        Загружай PNG схему карьера. Схема привязана к текущей неделе
+        и автоматически появится у всех пользователей.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Текущая неделя</label>
+        <div id="settings-week-key" class="settings-week-label">—</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Загруженные схемы</label>
+        <div id="settings-schemes-list" class="settings-schemes-list">Загрузка...</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Загрузить новую схему</label>
+        <div id="scheme-preview"></div>
+        <label class="photo-pick-btn" for="scheme-file">
+          🗺 Выбрать PNG файл
+          <input type="file" id="scheme-file" accept="image/png,image/jpeg" style="display:none">
+        </label>
+        <button class="btn btn-primary btn-full" id="btn-upload-scheme" style="margin-top:10px">
+          ⬆️ Загрузить схему
+        </button>
+        <p class="form-hint" id="scheme-upload-status"></p>
+      </div>
     </div>
   </div>
 
@@ -268,6 +312,7 @@
 <script src="workers.js"></script>
 <script src="points.js"></script>
 <script src="photos.js"></script>
+<script src="schemes.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

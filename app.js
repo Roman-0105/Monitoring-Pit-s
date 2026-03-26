@@ -29,9 +29,10 @@ document.addEventListener('DOMContentLoaded', function() {
   initEditModal();
   initDiagButtons();
   Photos.initPhotoInput('f-photo', 'f-photo-preview');
+  initSettings();
   Diagnostics.render();
 
-  Promise.all([Workers.load(), Points.load()]).then(function() {
+  Promise.all([Workers.load(), Points.load(), Schemes.load()]).then(function() {
     renderWorkers();
     renderPointsList();
     Diagnostics.clearError();
@@ -54,7 +55,7 @@ function syncAll() {
   if (AppState.syncing) return; // не запускаем параллельно
   AppState.syncing = true;
   Points.flushQueue().then(function() {
-    return Promise.all([Points.load(), Workers.load()]);
+    return Promise.all([Points.load(), Workers.load(), Schemes.load()]);
   }).then(function() {
     renderPointsList();
     renderWorkers();
@@ -82,7 +83,9 @@ function switchTab(name) {
     p.classList.toggle('active', p.id === 'page-' + name);
   });
   if (name === 'add')     resetAddForm();
-  if (name === 'diag')    Diagnostics.render();
+  if (name === 'diag')     Diagnostics.render();
+  if (name === 'map')      renderMap();
+  if (name === 'settings') renderSettingsSchemes();
   if (name === 'workers') renderWorkerManageList();
 }
 
@@ -487,6 +490,126 @@ function getGPS() {
     alert('GPS: ' + err.message);
     if (btn) btn.textContent = '📍 GPS';
   }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+// ── Карта ────────────────────────────────────────────────
+function renderMap() {
+  var canvas  = document.getElementById('map-canvas');
+  var noScheme = document.getElementById('map-no-scheme');
+  var weekLabel = document.getElementById('map-week-label');
+  if (!canvas) return;
+
+  var weekKey = Schemes.currentWeekKey();
+  if (weekLabel) weekLabel.textContent = Schemes.formatWeekKey(weekKey);
+
+  var scheme = Schemes.getCurrent();
+  if (!scheme) {
+    canvas.style.display = 'none';
+    if (noScheme) noScheme.style.display = 'block';
+    return;
+  }
+
+  if (noScheme) noScheme.style.display = 'none';
+  canvas.style.display = 'block';
+
+  Schemes.getCurrentImage().then(function(dataUrl) {
+    if (!dataUrl) {
+      canvas.style.display = 'none';
+      if (noScheme) noScheme.style.display = 'block';
+      return;
+    }
+    var img = new Image();
+    img.onload = function() {
+      canvas.width  = img.width;
+      canvas.height = img.height;
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = dataUrl;
+  });
+}
+
+// ── Настройки — схемы ────────────────────────────────────
+function initSettings() {
+  // Показываем текущую неделю
+  var weekEl = document.getElementById('settings-week-key');
+  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
+
+  // Превью файла
+  var fileInput = document.getElementById('scheme-file');
+  if (fileInput) {
+    fileInput.addEventListener('change', function() {
+      var file = fileInput.files && fileInput.files[0];
+      var preview = document.getElementById('scheme-preview');
+      if (!preview) return;
+      if (!file) { preview.innerHTML = ''; return; }
+      var url = URL.createObjectURL(file);
+      var img = document.createElement('img');
+      img.src = url;
+      img.onload = function() { URL.revokeObjectURL(url); };
+      preview.innerHTML = '';
+      preview.appendChild(img);
+    });
+  }
+
+  // Кнопка загрузки
+  var uploadBtn = document.getElementById('btn-upload-scheme');
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', uploadScheme);
+  }
+}
+
+function renderSettingsSchemes() {
+  var weekEl = document.getElementById('settings-week-key');
+  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
+
+  var container = document.getElementById('settings-schemes-list');
+  if (!container) return;
+  var schemes = Schemes.getList();
+  var current = Schemes.currentWeekKey();
+
+  if (!schemes.length) {
+    container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < schemes.length; i++) {
+    var s = schemes[i];
+    var isCurrent = s.weekKey === current;
+    html += '<div class="scheme-item">';
+    html += '<div>';
+    html += '<div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
+    html += '<div class="scheme-item__date">' + formatDate(s.uploadedAt) + '</div>';
+    html += '</div>';
+    if (isCurrent) html += '<span class="scheme-item__current">✅ Текущая</span>';
+    html += '</div>';
+  }
+  container.innerHTML = html;
+}
+
+function uploadScheme() {
+  var fileInput = document.getElementById('scheme-file');
+  var statusEl  = document.getElementById('scheme-upload-status');
+  var file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { alert('Выберите файл схемы'); return; }
+
+  var weekKey = Schemes.currentWeekKey();
+  if (statusEl) statusEl.textContent = 'Загрузка...';
+  var uploadBtn = document.getElementById('btn-upload-scheme');
+  if (uploadBtn) uploadBtn.disabled = true;
+
+  Schemes.upload(file, weekKey, Storage.getDeviceId()).then(function() {
+    if (statusEl) statusEl.textContent = '✅ Схема загружена — ' + Schemes.formatWeekKey(weekKey);
+    document.getElementById('scheme-preview').innerHTML = '';
+    fileInput.value = '';
+    renderSettingsSchemes();
+  }).catch(function(err) {
+    if (statusEl) statusEl.textContent = '❌ Ошибка: ' + err.message;
+  }).then(function() {
+    if (uploadBtn) uploadBtn.disabled = false;
+  });
 }
 
 // ── Утилиты ───────────────────────────────────────────────

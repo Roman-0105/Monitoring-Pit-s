@@ -519,3 +519,87 @@ html, body {
 .point-card__photo-wrap {
   margin: 6px 0;
 }
+
+/* ── Map tab ─────────────────────────────────────────── */
+#page-map {
+  padding: 0;
+  overflow: hidden;
+  display: none;
+  flex-direction: column;
+}
+#page-map.active { display: flex; }
+
+.map-scheme-wrap {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+#map-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  touch-action: pan-x pan-y;
+}
+.map-no-scheme {
+  text-align: center;
+  color: var(--gray-400);
+  padding: 40px 20px;
+}
+.map-no-scheme p { margin-bottom: 6px; }
+.map-legend {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--gray-600);
+  background: var(--white);
+  border-top: 1px solid var(--gray-200);
+  flex-shrink: 0;
+}
+
+/* ── Settings tab ────────────────────────────────────── */
+.settings-week-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--blue);
+  padding: 6px 0;
+}
+.settings-schemes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.scheme-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.scheme-item__week {
+  font-weight: 600;
+  color: var(--gray-800);
+}
+.scheme-item__current {
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+}
+.scheme-item__date {
+  font-size: 11px;
+  color: var(--gray-600);
+}
+#scheme-preview img {
+  max-width: 100%;
+  max-height: 120px;
+  border-radius: var(--radius-sm);
+  display: block;
+  margin-bottom: 8px;
+}
