@@ -467,14 +467,22 @@ function saveEditedPoint() {
 
   // Создание с карты (не редактирование)
   if (isMapAdd) {
-    chain = (photoFile
-      ? Photos.uploadAndReplace(photoFile, 'tmp-' + Date.now()).then(function(url) {
-          if (url) data.photoUrls = [url];
-          return Points.create(data);
-        })
-      : Points.create(data)
-    ).then(function(saved) {
-      if (saved && _mapSchemeImg) redrawMap(); // сразу обновляем карту
+    chain = Points.create(data).then(function(savedPoint) {
+      if (!photoFile || !savedPoint || !savedPoint.id) return null;
+      showLoader('Загрузка фото...');
+      // Ждём 2 сек чтобы Apps Script записал строку createPoint
+      return new Promise(function(r) { setTimeout(r, 2000); }).then(function() {
+        return Photos.uploadAndReplace(photoFile, savedPoint.id);
+      }).then(function(url) {
+        if (url) {
+          // Обновляем photoUrls в Sheets
+          return Points.update(savedPoint.id, { photoUrls: [url] });
+        }
+      }).catch(function(e) {
+        console.warn('Photo upload after map-add:', e.message);
+      });
+    }).then(function() {
+      if (_mapSchemeImg) redrawMap();
     });
   } else if (photoFile) {
     showLoader('Загрузка фото...');
