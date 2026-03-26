@@ -162,12 +162,20 @@ var MapModule = (function() {
     return null;
   }
 
+  // ── Пиксели → локальные координаты (обратное) ──────────
+  function pixelToLocal(px, py, imgW, imgH) {
+    var xLocal = BOUNDS.xMin + (1 - py / imgH) * (BOUNDS.xMax - BOUNDS.xMin);
+    var yLocal = BOUNDS.yMin + (px / imgW)     * (BOUNDS.yMax - BOUNDS.yMin);
+    return { x: Math.round(xLocal), y: Math.round(yLocal) };
+  }
+
   return {
-    wgs84ToSK42:  wgs84ToSK42,
-    toPixel:      toPixel,
-    drawPoints:   drawPoints,
-    findPointAt:  findPointAt,
-    BOUNDS:       BOUNDS,
+    wgs84ToSK42:   wgs84ToSK42,
+    toPixel:       toPixel,
+    pixelToLocal:  pixelToLocal,
+    drawPoints:    drawPoints,
+    findPointAt:   findPointAt,
+    BOUNDS:        BOUNDS,
     STATUS_COLORS: STATUS_COLORS,
   };
 })();

@@ -319,6 +319,10 @@ function initEditModal() {
   if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveEditedPoint(); });
   var delBtn = document.getElementById('e-delete-photo-btn');
   if (delBtn) delBtn.addEventListener('click', deletePointPhoto);
+
+  // Кнопка добавления точки на карте
+  var addMapBtn = document.getElementById('btn-map-add-point');
+  if (addMapBtn) addMapBtn.addEventListener('click', toggleMapAddMode);
   Photos.initPhotoInput('e-photo', 'e-new-photo-preview');
 }
 
@@ -374,20 +378,49 @@ function closeEditModal() {
   document.getElementById('edit-modal').style.display = 'none';
   document.body.style.overflow = '';
   AppState.editingPointId = null;
+  var form = document.getElementById('edit-form');
+  if (form) form._mapCoords = null;
+  // Сбрасываем заголовок модала
+  var title = document.getElementById('edit-modal-title');
+  if (title) title.textContent = 'Редактирование';
+  var submitBtn = document.getElementById('edit-form') &&
+                  document.getElementById('edit-form').querySelector('[type=submit]');
+  if (submitBtn) submitBtn.textContent = 'Сохранить изменения';
 }
 
 function saveEditedPoint() {
-  if (!AppState.editingPointId) return;
+  var isMapAdd  = !AppState.editingPointId &&
+                  document.getElementById('edit-form')._mapCoords;
   var id        = AppState.editingPointId;
   var data      = readFormFields('e');
   var photoFile = Photos.getFile('e-photo');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
+
+  // Если добавляем с карты — берём координаты из клика
+  if (isMapAdd && document.getElementById('edit-form')._mapCoords) {
+    var mc = document.getElementById('edit-form')._mapCoords;
+    data.xLocal = mc.xLocal;
+    data.yLocal = mc.yLocal;
+    document.getElementById('edit-form')._mapCoords = null;
+  }
   showLoader('Сохранение...');
   closeEditModal();
 
-  AppState.syncing = true; // блокируем фоновую синхронизацию
+  AppState.syncing = true;
   var chain;
-  if (photoFile) {
+
+  // Создание с карты (не редактирование)
+  if (isMapAdd) {
+    chain = (photoFile
+      ? Photos.uploadAndReplace(photoFile, 'tmp-' + Date.now()).then(function(url) {
+          if (url) data.photoUrls = [url];
+          return Points.create(data);
+        })
+      : Points.create(data)
+    ).then(function(saved) {
+      if (saved && _mapSchemeImg) redrawMap(); // сразу обновляем карту
+    });
+  } else if (photoFile) {
     showLoader('Загрузка фото...');
     chain = Photos.uploadAndReplace(photoFile, id).then(function(newUrl) {
       if (newUrl) {
@@ -493,8 +526,15 @@ function getGPS() {
 }
 
 // ── Карта ────────────────────────────────────────────────
-// Хранит последнее загруженное изображение схемы для перерисовки
-var _mapSchemeImg = null;
+// ── Состояние карты ──────────────────────────────────────
+var _mapSchemeImg  = null;
+var _mapScale      = 1.0;   // текущий масштаб
+var _mapOffX       = 0;     // смещение X (pan)
+var _mapOffY       = 0;     // смещение Y (pan)
+var _mapAddMode    = false;  // режим добавления точки
+var _mapDragging   = false;
+var _mapDragStartX = 0;
+var _mapDragStartY = 0;
 
 function renderMap() {
   var canvas   = document.getElementById('map-canvas');
@@ -511,13 +551,11 @@ function renderMap() {
     if (noScheme) noScheme.style.display = 'block';
     return;
   }
-
   if (noScheme) noScheme.style.display = 'none';
   canvas.style.display = 'block';
 
-  // Если схема уже загружена — просто перерисовываем точки
   if (_mapSchemeImg) {
-    drawMapCanvas(canvas, _mapSchemeImg);
+    redrawMap();
     return;
   }
 
@@ -530,39 +568,268 @@ function renderMap() {
     var img = new Image();
     img.onload = function() {
       _mapSchemeImg = img;
-      drawMapCanvas(canvas, img);
-      initMapClick(canvas, img);
+      // Начальный масштаб: вписываем схему в контейнер
+      var wrap = document.getElementById('map-scheme-wrap');
+      if (wrap) {
+        var fitScale = Math.min(wrap.clientWidth / img.width, wrap.clientHeight / img.height);
+        _mapScale = fitScale > 0 ? fitScale : 1;
+      } else {
+        _mapScale = 1;
+      }
+      _mapOffX = 0;
+      _mapOffY = 0;
+      setupMapCanvas(canvas);
+      redrawMap();
+      initMapInteraction(canvas);
+      initMapZoomButtons();
     };
     img.src = dataUrl;
   });
 }
 
-function drawMapCanvas(canvas, img) {
-  canvas.width  = img.width;
-  canvas.height = img.height;
-  var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.drawImage(img, 0, 0);
-  // Рисуем точки поверх схемы
-  if (typeof MapModule !== 'undefined') {
-    MapModule.drawPoints(ctx, Points.getList(), img.width, img.height);
-  }
+function setupMapCanvas(canvas) {
+  // Canvas отображается через transform, размер = контейнер
+  var wrap = document.getElementById('map-scheme-wrap');
+  if (!wrap) return;
+  canvas.width  = wrap.clientWidth  || 400;
+  canvas.height = wrap.clientHeight || 600;
 }
 
-function initMapClick(canvas, img) {
-  if (canvas._clickBound) return;
-  canvas._clickBound = true;
-  canvas.addEventListener('click', function(e) {
-    if (typeof MapModule === 'undefined') return;
-    var rect  = canvas.getBoundingClientRect();
-    var scaleX = canvas.width  / rect.width;
-    var scaleY = canvas.height / rect.height;
-    var cx = (e.clientX - rect.left)  * scaleX;
-    var cy = (e.clientY - rect.top)   * scaleY;
-    var p = MapModule.findPointAt(cx, cy, Points.getList(), img.width, img.height, 1, 0, 0);
-    if (p) showMapPointCard(p);
+function redrawMap() {
+  var canvas = document.getElementById('map-canvas');
+  if (!canvas || !_mapSchemeImg) return;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.translate(_mapOffX, _mapOffY);
+  ctx.scale(_mapScale, _mapScale);
+  ctx.drawImage(_mapSchemeImg, 0, 0);
+  if (typeof MapModule !== 'undefined') {
+    // Рисуем точки с учётом масштаба
+    MapModule.drawPoints(ctx, Points.getList(), _mapSchemeImg.width, _mapSchemeImg.height);
+  }
+  ctx.restore();
+}
+
+function initMapInteraction(canvas) {
+  if (canvas._mapBound) return;
+  canvas._mapBound = true;
+
+  // ── Колесо мыши — зум ───────────────────────────────────
+  canvas.addEventListener('wheel', function(e) {
+    e.preventDefault();
+    var rect   = canvas.getBoundingClientRect();
+    var mouseX = e.clientX - rect.left;
+    var mouseY = e.clientY - rect.top;
+    var delta  = e.deltaY > 0 ? 0.85 : 1.18;
+    var newScale = Math.max(0.2, Math.min(10, _mapScale * delta));
+    // Зум относительно точки курсора
+    _mapOffX = mouseX - (mouseX - _mapOffX) * (newScale / _mapScale);
+    _mapOffY = mouseY - (mouseY - _mapOffY) * (newScale / _mapScale);
+    _mapScale = newScale;
+    redrawMap();
+  }, { passive: false });
+
+  // ── Touch — pinch zoom + pan ─────────────────────────────
+  var lastTouchDist = 0;
+  var lastTouchX = 0;
+  var lastTouchY = 0;
+
+  canvas.addEventListener('touchstart', function(e) {
+    if (e.touches.length === 2) {
+      var dx = e.touches[0].clientX - e.touches[1].clientX;
+      var dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTouchDist = Math.sqrt(dx*dx + dy*dy);
+    } else if (e.touches.length === 1) {
+      lastTouchX = e.touches[0].clientX;
+      lastTouchY = e.touches[0].clientY;
+      _mapDragging = true;
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault();
+    if (e.touches.length === 2) {
+      var dx   = e.touches[0].clientX - e.touches[1].clientX;
+      var dy   = e.touches[0].clientY - e.touches[1].clientY;
+      var dist = Math.sqrt(dx*dx + dy*dy);
+      if (lastTouchDist > 0) {
+        var ratio    = dist / lastTouchDist;
+        var midX     = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        var midY     = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        var rect     = canvas.getBoundingClientRect();
+        var mx       = midX - rect.left;
+        var my       = midY - rect.top;
+        var newScale = Math.max(0.2, Math.min(10, _mapScale * ratio));
+        _mapOffX = mx - (mx - _mapOffX) * (newScale / _mapScale);
+        _mapOffY = my - (my - _mapOffY) * (newScale / _mapScale);
+        _mapScale = newScale;
+        redrawMap();
+      }
+      lastTouchDist = dist;
+    } else if (e.touches.length === 1 && _mapDragging && !_mapAddMode) {
+      var dx = e.touches[0].clientX - lastTouchX;
+      var dy = e.touches[0].clientY - lastTouchY;
+      _mapOffX += dx;
+      _mapOffY += dy;
+      lastTouchX = e.touches[0].clientX;
+      lastTouchY = e.touches[0].clientY;
+      redrawMap();
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function(e) {
+    if (e.touches.length < 2) lastTouchDist = 0;
+    if (e.touches.length === 0) _mapDragging = false;
+  }, { passive: true });
+
+  // ── Mouse drag — pan ─────────────────────────────────────
+  canvas.addEventListener('mousedown', function(e) {
+    if (_mapAddMode) return;
+    _mapDragging   = true;
+    _mapDragStartX = e.clientX - _mapOffX;
+    _mapDragStartY = e.clientY - _mapOffY;
+    canvas.style.cursor = 'grabbing';
   });
+  canvas.addEventListener('mousemove', function(e) {
+    if (!_mapDragging || _mapAddMode) return;
+    _mapOffX = e.clientX - _mapDragStartX;
+    _mapOffY = e.clientY - _mapDragStartY;
+    redrawMap();
+  });
+  canvas.addEventListener('mouseup', function() {
+    _mapDragging = false;
+    canvas.style.cursor = _mapAddMode ? 'crosshair' : 'grab';
+  });
+  canvas.addEventListener('mouseleave', function() { _mapDragging = false; });
+  canvas.style.cursor = 'grab';
+
+  // ── Клик — добавить точку или открыть карточку ───────────
+  canvas.addEventListener('click', function(e) {
+    if (_mapDragging) return;
+    var rect   = canvas.getBoundingClientRect();
+    var cx     = e.clientX - rect.left;
+    var cy     = e.clientY - rect.top;
+    // Обратное преобразование: экран → координаты схемы
+    var imgX   = (cx - _mapOffX) / _mapScale;
+    var imgY   = (cy - _mapOffY) / _mapScale;
+
+    if (_mapAddMode && typeof MapModule !== 'undefined') {
+      // Вычисляем локальные координаты из пикселей
+      var local = MapModule.pixelToLocal(imgX, imgY, _mapSchemeImg.width, _mapSchemeImg.height);
+      openAddPointModal(local.x, local.y);
+      return;
+    }
+
+    if (typeof MapModule !== 'undefined') {
+      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      if (p) showMapPointCard(p);
+    }
+  });
+}
+
+function initMapZoomButtons() {
+  var wrap = document.getElementById('map-scheme-wrap');
+  if (!wrap || wrap.querySelector('.map-zoom-controls')) return;
+
+  var controls = document.createElement('div');
+  controls.className = 'map-zoom-controls';
+  controls.innerHTML =
+    '<button class="map-zoom-btn" id="map-zoom-in" title="Приблизить">+</button>' +
+    '<button class="map-zoom-btn" id="map-zoom-out" title="Отдалить">−</button>' +
+    '<button class="map-zoom-btn" id="map-zoom-fit" title="По размеру" style="font-size:13px">⊡</button>';
+  wrap.appendChild(controls);
+
+  document.getElementById('map-zoom-in').addEventListener('click', function() {
+    zoomMap(1.3);
+  });
+  document.getElementById('map-zoom-out').addEventListener('click', function() {
+    zoomMap(0.77);
+  });
+  document.getElementById('map-zoom-fit').addEventListener('click', function() {
+    fitMap();
+  });
+}
+
+function zoomMap(factor) {
+  var canvas = document.getElementById('map-canvas');
+  if (!canvas) return;
+  var cx = canvas.width  / 2;
+  var cy = canvas.height / 2;
+  var newScale = Math.max(0.2, Math.min(10, _mapScale * factor));
+  _mapOffX = cx - (cx - _mapOffX) * (newScale / _mapScale);
+  _mapOffY = cy - (cy - _mapOffY) * (newScale / _mapScale);
+  _mapScale = newScale;
+  redrawMap();
+}
+
+function fitMap() {
+  if (!_mapSchemeImg) return;
+  var canvas = document.getElementById('map-canvas');
+  if (!canvas) return;
+  var fitScale = Math.min(canvas.width / _mapSchemeImg.width, canvas.height / _mapSchemeImg.height);
+  _mapScale = fitScale > 0 ? fitScale : 1;
+  _mapOffX  = (canvas.width  - _mapSchemeImg.width  * _mapScale) / 2;
+  _mapOffY  = (canvas.height - _mapSchemeImg.height * _mapScale) / 2;
+  redrawMap();
+}
+
+// ── Режим добавления точки ────────────────────────────────
+function toggleMapAddMode() {
+  _mapAddMode = !_mapAddMode;
+  var canvas = document.getElementById('map-canvas');
+  var btn    = document.getElementById('btn-map-add-point');
+  var hint   = document.getElementById('map-add-hint');
+  if (canvas) canvas.classList.toggle('adding-mode', _mapAddMode);
+  if (btn)    btn.style.background = _mapAddMode ? 'var(--blue)' : '';
+  if (btn)    btn.style.color      = _mapAddMode ? 'white' : '';
+  if (hint)   hint.style.display   = _mapAddMode ? 'inline' : 'none';
+  if (!_mapAddMode && canvas) canvas.style.cursor = 'grab';
+}
+
+function openAddPointModal(xLocal, yLocal) {
+  // Выключаем режим добавления
+  _mapAddMode = false;
+  var canvas = document.getElementById('map-canvas');
+  var btn    = document.getElementById('btn-map-add-point');
+  var hint   = document.getElementById('map-add-hint');
+  if (canvas) { canvas.classList.remove('adding-mode'); canvas.style.cursor = 'grab'; }
+  if (btn)    { btn.style.background = ''; btn.style.color = ''; }
+  if (hint)   hint.style.display = 'none';
+
+  // Открываем модал редактирования как форму добавления
+  AppState.editingPointId = null;
+  document.getElementById('edit-modal-title').textContent = 'Новая точка';
+  // Очищаем поля
+  ['e-num','e-lat','e-lon','e-intensity','e-flowrate','e-color',
+   'e-wall','e-domain','e-comment'].forEach(function(id) { setField(id, ''); });
+  setField('e-status', 'Новая');
+  updateWorkerSelects();
+
+  // Вычисляем GPS из локальных координат (обратная задача — приблизительно)
+  // Заполняем только локальные координаты — GPS не вычисляем обратно
+  // xLocal/yLocal передадим при сохранении
+
+  var preview = document.getElementById('e-photo-preview');
+  if (preview) preview.innerHTML = '';
+  Photos.clearInput('e-photo', 'e-new-photo-preview');
+
+  var delBtn = document.getElementById('e-delete-photo-btn');
+  if (delBtn) delBtn.style.display = 'none';
+
+  // Меняем submit — создаём точку с xLocal/yLocal из карты
+  var form = document.getElementById('edit-form');
+  form._mapCoords = { xLocal: xLocal, yLocal: yLocal };
+
+  document.getElementById('edit-modal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  // Обновляем заголовок и кнопку
+  document.getElementById('edit-modal-title').textContent = 'Новая точка на карте';
+  document.getElementById('edit-form').querySelector('[type=submit]').textContent = 'Сохранить точку';
 }
 
 function showMapPointCard(p) {
