@@ -1,8 +1,13 @@
 /**
- * photos.js — загрузка, замена и отображение фото.
+ * photos.js — сжатие, загрузка и отображение фото.
  *
- * Все функции внутри замыкания Photos.
- * Нет глобальных переменных. Нет дублирования.
+ * Единственный поток загрузки:
+ *   1. compress(file) → base64
+ *   2. Api.uploadPhotoConfirmed(pointId, ...) → driveUrl
+ *      (внутри: POST uploadPhoto + polling getPoint)
+ *   3. Вернуть driveUrl вызывающему коду
+ *
+ * При ошибке — бросаем Error, не возвращаем null.
  */
 
 var Photos = (function() {
@@ -10,95 +15,79 @@ var Photos = (function() {
   // ── Сжатие ───────────────────────────────────────────────
 
   function compress(file, maxSize, quality) {
-    maxSize  = maxSize  || 1600;
-    quality  = quality  || 0.85;
+    maxSize = maxSize || 1600;
+    quality = quality || 0.85;
     return new Promise(function(resolve, reject) {
       var img = new Image();
       var url = URL.createObjectURL(file);
       img.onload = function() {
         URL.revokeObjectURL(url);
-        var w = img.width;
-        var h = img.height;
+        var w = img.width, h = img.height;
         if (w > maxSize || h > maxSize) {
           if (w >= h) { h = Math.round(h * maxSize / w); w = maxSize; }
           else        { w = Math.round(w * maxSize / h); h = maxSize; }
         }
         var canvas = document.createElement('canvas');
-        canvas.width  = w;
-        canvas.height = h;
+        canvas.width = w; canvas.height = h;
         canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         var dataUrl = canvas.toDataURL('image/jpeg', quality);
         resolve(dataUrl.split(',')[1]);
       };
       img.onerror = function() {
         URL.revokeObjectURL(url);
-        reject(new Error('Ошибка загрузки изображения'));
+        reject(new Error('Ошибка чтения изображения'));
       };
       img.src = url;
     });
   }
 
-  // ── Загрузка / атомарная замена ──────────────────────────
+  // ── Загрузка с подтверждением ────────────────────────────
 
   /**
-   * Загружает фото для точки. Если фото уже есть — сервер
-   * автоматически удаляет старое и сохраняет только новый URL.
-   * Возвращает Promise<string|null> — новый driveUrl.
+   * Сжимает файл и загружает с подтверждением через API.
+   * Возвращает Promise<string> — driveUrl.
+   * При любой ошибке бросает Error.
    */
-  function uploadAndReplace(file, pointId) {
+  function upload(file, pointId) {
+    if (!file)    return Promise.reject(new Error('Файл не выбран'));
+    if (!pointId) return Promise.reject(new Error('pointId не задан'));
+
     Diagnostics.set('photoStatus', 'uploading');
 
-    // Общий таймаут 35 сек — гарантируем что промис всегда завершается
-    var timeoutPromise = new Promise(function(_, reject) {
+    var TIMEOUT_MS = 40000;
+    var timeoutP   = new Promise(function(_, reject) {
       setTimeout(function() {
-        reject(new Error('Таймаут загрузки фото (35 сек)'));
-      }, 35000);
+        reject(new Error('Таймаут загрузки фото (40 сек)'));
+      }, TIMEOUT_MS);
     });
 
-    var uploadPromise = compress(file).then(function(base64) {
+    var uploadP = compress(file).then(function(base64) {
       var fileName = 'photo_' + pointId + '_' + Date.now() + '.jpg';
-      return Api.uploadPhoto(pointId, fileName, base64, 'image/jpeg');
-    }).then(function() {
-      // Ждём 3 сек чтобы Apps Script завершил запись
-      return new Promise(function(r) { setTimeout(r, 3000); });
-    }).then(function() {
-      // Читаем актуальный URL из Sheets
-      return Api.getPoints();
-    }).then(function(points) {
-      var p   = points.find(function(x) { return x.id === pointId; });
-      var url = (p && p.photoUrls && p.photoUrls[0]) ? p.photoUrls[0] : null;
-      Diagnostics.set('photoStatus', url ? 'uploaded' : 'error');
-      return url;
+      return Api.uploadPhotoConfirmed(pointId, fileName, base64, 'image/jpeg');
+    }).then(function(driveUrl) {
+      Diagnostics.set('photoStatus', 'uploaded');
+      return driveUrl;
     });
 
-    // Race: либо загрузка завершилась, либо таймаут
-    return Promise.race([uploadPromise, timeoutPromise]).catch(function(err) {
-      Diagnostics.setError('photo', err.message);
+    return Promise.race([uploadP, timeoutP]).catch(function(err) {
       Diagnostics.set('photoStatus', 'error');
-      // НЕ бросаем ошибку дальше — возвращаем null
-      // Точка сохранится без фото, интерфейс не зависнет
-      return null;
+      Diagnostics.setError('photo', err.message);
+      throw err; // не глотаем ошибку
     });
   }
 
-  // ── Прокси-загрузка для отображения ─────────────────────
+  // ── Отображение через прокси ─────────────────────────────
 
-  /**
-   * Загружает изображение через Apps Script (обход CORS Drive).
-   * Возвращает Promise<dataUrl|null>.
-   */
   function loadForDisplay(driveUrl) {
     if (!driveUrl) return Promise.resolve(null);
     var match = driveUrl.match(/id=([^&]+)/);
     if (!match) return Promise.resolve(driveUrl);
     return Api.getImage(match[1]).then(function(data) {
+      if (!data || !data.base64) return null;
       return 'data:' + data.mimeType + ';base64,' + data.base64;
     }).catch(function() { return null; });
   }
 
-  /**
-   * Устанавливает src у img-элемента через прокси.
-   */
   function setImageSrc(imgEl, driveUrl) {
     if (!imgEl || !driveUrl) return;
     loadForDisplay(driveUrl).then(function(src) {
@@ -109,35 +98,30 @@ var Photos = (function() {
   // ── UI: input + preview ───────────────────────────────────
 
   function initPhotoInput(inputId, previewId) {
-    var input   = document.getElementById(inputId);
-    var preview = document.getElementById(previewId);
-    if (!input || !preview) return;
-    // Сбрасываем старый обработчик
+    var input = document.getElementById(inputId);
+    if (!input) return;
     var newInput = input.cloneNode(true);
     input.parentNode.replaceChild(newInput, input);
     newInput.addEventListener('change', function() {
-      var file = newInput.files && newInput.files[0];
+      var file    = newInput.files && newInput.files[0];
+      var preview = document.getElementById(previewId);
+      if (!preview) return;
       if (!file) { preview.innerHTML = ''; return; }
       var url = URL.createObjectURL(file);
       var img = document.createElement('img');
-      img.src   = url;
       img.style.cssText = 'max-width:100%;max-height:180px;border-radius:6px;display:block';
       img.onload = function() { URL.revokeObjectURL(url); };
-      var wrap = document.createElement('div');
-      wrap.className = 'photo-preview';
-      wrap.appendChild(img);
+      img.src = url;
       preview.innerHTML = '';
-      preview.appendChild(wrap);
+      preview.appendChild(img);
     });
   }
 
   function clearInput(inputId, previewId) {
     var input = document.getElementById(inputId);
     if (input) {
-      // Сбрасываем value через замену элемента
       var newInput = input.cloneNode(true);
       input.parentNode.replaceChild(newInput, input);
-      // Переинициализируем обработчик
       initPhotoInput(inputId, previewId);
     }
     var preview = document.getElementById(previewId);
@@ -150,12 +134,12 @@ var Photos = (function() {
   }
 
   return {
-    compress:         compress,
-    uploadAndReplace: uploadAndReplace,
-    loadForDisplay:   loadForDisplay,
-    setImageSrc:      setImageSrc,
-    initPhotoInput:   initPhotoInput,
-    clearInput:       clearInput,
-    getFile:          getFile,
+    compress:       compress,
+    upload:         upload,
+    loadForDisplay: loadForDisplay,
+    setImageSrc:    setImageSrc,
+    initPhotoInput: initPhotoInput,
+    clearInput:     clearInput,
+    getFile:        getFile,
   };
 })();

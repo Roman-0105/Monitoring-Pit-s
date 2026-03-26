@@ -1,14 +1,11 @@
 /**
  * api.js — единственный модуль для общения с Apps Script.
  *
- * Чтение: JSONP (GET).
- * Запись: fetch POST no-cors + подтверждение через JSONP.
+ * GET:  JSONP (обход CORS)
+ * POST: fetch no-cors
  *
- * Ключевое правило JSONP:
- *   window[cbName] живёт до тех пор пока не получен ответ.
- *   Удаляем его ТОЛЬКО после вызова — не по таймауту, не по onerror.
- *   Таймаут/onerror только переводят промис в rejected, но callback
- *   остаётся в window чтобы поглотить запоздалый ответ без ошибки.
+ * JSONP: window[cbName] живёт до получения ответа.
+ * Удаляется только после вызова — не по таймауту, не по onerror.
  */
 
 var Api = (function() {
@@ -25,55 +22,43 @@ var Api = (function() {
       var url = scriptUrl();
       if (!url) return reject(new Error('SCRIPT_URL не задан'));
 
-      var cbName  = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      var settled = false; // промис уже resolved/rejected?
+      var cbName  = '_cb_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
+      var settled = false;
 
-      // Таймаут — реджектим промис, но НЕ удаляем window[cbName]
       var timer = setTimeout(function() {
         if (!settled) {
           settled = true;
-          reject(new Error('JSONP timeout: ' + JSON.stringify(params)));
+          reject(new Error('JSONP timeout'));
         }
-        // window[cbName] остаётся — поглотит запоздалый ответ
+        // callback остаётся — поглотит запоздалый ответ
       }, timeoutMs);
 
-      // Callback — вызывается когда Apps Script вернул данные
       window[cbName] = function(data) {
-        // Всегда убираем тег и таймер
         clearTimeout(timer);
         var el = document.getElementById(cbName);
         if (el) el.remove();
-        // Удаляем себя из window
         delete window[cbName];
-
-        if (settled) return; // таймаут уже был — тихо игнорируем
+        if (settled) return;
         settled = true;
-
         if (data && data.error) return reject(new Error(data.error));
         resolve(data);
       };
 
-      // Строим URL
-      var parts = [];
-      var keys  = Object.keys(params).concat(['callback']);
-      for (var i = 0; i < keys.length; i++) {
-        var k = keys[i];
-        var v = k === 'callback' ? cbName : params[k];
-        parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(v));
-      }
+      var parts = Object.keys(params).map(function(k) {
+        return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+      });
+      parts.push('callback=' + encodeURIComponent(cbName));
 
-      var script  = document.createElement('script');
-      script.id   = cbName;
-      script.src  = url + '?' + parts.join('&');
+      var script   = document.createElement('script');
+      script.id    = cbName;
+      script.src   = url + '?' + parts.join('&');
       script.onerror = function() {
-        // Убираем тег, но НЕ удаляем window[cbName] и НЕ делаем clearTimeout
-        // Промис реджектим только если ещё не settled
         var el = document.getElementById(cbName);
         if (el) el.remove();
         if (!settled) {
           settled = true;
           clearTimeout(timer);
-          reject(new Error('JSONP script load error'));
+          reject(new Error('JSONP load error'));
         }
       };
       document.head.appendChild(script);
@@ -93,13 +78,12 @@ var Api = (function() {
     });
   }
 
-  // POST + подтверждение через getPoint polling
-  function postWithConfirm(body, confirmFn, opts) {
-    opts = opts || {};
-    var retryMs    = opts.retryMs    || 2000;
-    var maxRetries = opts.maxRetries || 5;
+  // POST + polling подтверждения
+  function postWithConfirm(body, checkFn, retryMs, maxRetries) {
+    retryMs    = retryMs    || 2000;
+    maxRetries = maxRetries || 6;
     return post(body).then(function() {
-      return poll(confirmFn, retryMs, maxRetries);
+      return poll(checkFn, retryMs, maxRetries);
     });
   }
 
@@ -117,37 +101,32 @@ var Api = (function() {
           setTimeout(next, intervalMs);
         });
       }
-      setTimeout(next, intervalMs); // первая попытка через intervalMs
+      setTimeout(next, intervalMs);
     });
   }
 
-  // ── Публичные методы чтения ───────────────────────────────
+  // ── Чтение ───────────────────────────────────────────────
 
   function getPoints() {
     return jsonpGet({ action: 'getPoints' }).then(function(d) { return d.points || []; });
   }
-
-  function getWorkers() {
-    return jsonpGet({ action: 'getWorkers' }).then(function(d) { return d.workers || []; });
-  }
-
-  function getSchemes() {
-    return jsonpGet({ action: 'getSchemes' }).then(function(d) { return d.schemes || []; });
-  }
-
   function getPoint(id) {
     return jsonpGet({ action: 'getPoint', id: id }).then(function(d) { return d.point || null; });
   }
-
-  function getImage(fileId) {
-    return jsonpGet({ action: 'getImage', fileId: fileId }, 30000); // дольше для больших фото
+  function getWorkers() {
+    return jsonpGet({ action: 'getWorkers' }).then(function(d) { return d.workers || []; });
   }
-
+  function getSchemes() {
+    return jsonpGet({ action: 'getSchemes' }).then(function(d) { return d.schemes || []; });
+  }
+  function getImage(fileId) {
+    return jsonpGet({ action: 'getImage', fileId: fileId }, 30000);
+  }
   function ping() {
     return jsonpGet({ action: 'ping' }).then(function(d) { return d.ok === true; });
   }
 
-  // ── Публичные методы записи ───────────────────────────────
+  // ── Запись точек ─────────────────────────────────────────
 
   function createPoint(point) {
     return postWithConfirm(
@@ -155,14 +134,12 @@ var Api = (function() {
       function() { return getPoint(point.id).then(function(p) { return !!p; }); }
     );
   }
-
   function updatePoint(point) {
     return postWithConfirm(
       { action: 'updatePoint', point: point },
       function() { return getPoint(point.id).then(function(p) { return !!p; }); }
     );
   }
-
   function deletePoint(id) {
     return postWithConfirm(
       { action: 'deletePoint', id: id },
@@ -170,44 +147,62 @@ var Api = (function() {
     );
   }
 
-  function saveWorker(worker) {
-    return post({ action: 'saveWorker', worker: worker });
+  // ── Сотрудники ───────────────────────────────────────────
+
+  function saveWorker(worker)  { return post({ action: 'saveWorker', worker: worker }); }
+  function deleteWorker(id)    { return post({ action: 'deleteWorker', id: id }); }
+
+  // ── Фото — с подтверждением ──────────────────────────────
+
+  /**
+   * Загружает фото и подтверждает через getPoint что URL записан.
+   * Возвращает Promise<string> — новый driveUrl.
+   * При ошибке бросает Error (не возвращает null).
+   */
+  function uploadPhotoConfirmed(pointId, fileName, base64, mimeType) {
+    return post({
+      action:   'uploadPhoto',
+      pointId:  pointId,
+      fileName: fileName,
+      base64:   base64,
+      mimeType: mimeType || 'image/jpeg',
+    }).then(function() {
+      // Polling: ждём пока getPoint вернёт непустой photoUrls
+      return poll(function() {
+        return getPoint(pointId).then(function(p) {
+          return !!(p && p.photoUrls && p.photoUrls[0]);
+        });
+      }, 2000, 8);
+    }).then(function() {
+      // Читаем актуальный URL
+      return getPoint(pointId).then(function(p) {
+        if (!p || !p.photoUrls || !p.photoUrls[0]) {
+          throw new Error('URL фото не записан в Sheets');
+        }
+        return p.photoUrls[0];
+      });
+    });
   }
 
-  function deleteWorker(id) {
-    return post({ action: 'deleteWorker', id: id });
-  }
-
-  function uploadPhoto(pointId, fileName, base64, mimeType) {
-    return post({ action: 'uploadPhoto', pointId: pointId, fileName: fileName,
-                  base64: base64, mimeType: mimeType });
-  }
-
-  function deletePhoto(pointId) {
-    return post({ action: 'deletePhoto', pointId: pointId });
-  }
-
+  function deletePhoto(pointId) { return post({ action: 'deletePhoto', pointId: pointId }); }
   function uploadScheme(params) {
-    return post({ action: 'uploadScheme',
-                  weekKey: params.weekKey, fileName: params.fileName,
-                  base64: params.base64, mimeType: params.mimeType,
-                  uploadedBy: params.uploadedBy });
+    return post({
+      action:      'uploadScheme',
+      weekKey:     params.weekKey,
+      fileName:    params.fileName,
+      base64:      params.base64,
+      mimeType:    params.mimeType,
+      uploadedBy:  params.uploadedBy,
+    });
   }
 
   return {
-    getPoints:    getPoints,
-    getWorkers:   getWorkers,
-    getSchemes:   getSchemes,
-    getPoint:     getPoint,
-    getImage:     getImage,
-    ping:         ping,
-    createPoint:  createPoint,
-    updatePoint:  updatePoint,
-    deletePoint:  deletePoint,
-    saveWorker:   saveWorker,
-    deleteWorker: deleteWorker,
-    uploadPhoto:  uploadPhoto,
-    deletePhoto:  deletePhoto,
-    uploadScheme: uploadScheme,
+    getPoints: getPoints, getPoint: getPoint,
+    getWorkers: getWorkers, getSchemes: getSchemes,
+    getImage: getImage, ping: ping,
+    createPoint: createPoint, updatePoint: updatePoint, deletePoint: deletePoint,
+    saveWorker: saveWorker, deleteWorker: deleteWorker,
+    uploadPhotoConfirmed: uploadPhotoConfirmed,
+    deletePhoto: deletePhoto, uploadScheme: uploadScheme,
   };
 })();

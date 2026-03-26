@@ -297,32 +297,25 @@ function resetAddForm() {
 }
 
 function saveNewPoint() {
-  var data = readFormFields('f');
+  var data      = readFormFields('f');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
   var photoFile = Photos.getFile('f-photo');
   AppState.syncing = true;
   showLoader('Сохранение...');
 
-  var createdPoint = null;
-
+  // Шаг 1: создаём точку (postWithConfirm)
   Points.create(data).then(function(savedPoint) {
-    createdPoint = savedPoint;
     if (!photoFile || !savedPoint || !savedPoint.id) return null;
+    // Шаг 2: загружаем фото (compress → uploadPhotoConfirmed → polling)
     showLoader('Загрузка фото...');
-
-    // Ждём 3 сек чтобы Apps Script точно записал строку createPoint
-    return new Promise(function(r) { setTimeout(r, 3000); }).then(function() {
-      return Photos.uploadAndReplace(photoFile, savedPoint.id);
-    }).then(function(url) {
-      if (url) {
-        // uploadPhoto уже записал URL в Sheets напрямую.
-        // Обновляем только локальный кэш.
-        var pt = Points.getById(savedPoint.id);
-        if (pt) {
-          pt.photoUrls = [url];
-          Storage.cachePoints(Points.getList());
-        }
-      }
+    return Photos.upload(photoFile, savedPoint.id).then(function(driveUrl) {
+      // Шаг 3: фиксируем URL в точке (уже записан сервером, обновляем кэш)
+      var pt = Points.getById(savedPoint.id);
+      if (pt) { pt.photoUrls = [driveUrl]; Storage.cachePoints(Points.getList()); }
+    }).catch(function(photoErr) {
+      // Фото не загрузилось — точка уже создана, показываем предупреждение
+      Diagnostics.setError('photo', photoErr.message);
+      alert('Точка сохранена, но фото не загрузилось: ' + photoErr.message);
     });
   }).then(function() {
     resetAddForm();
@@ -448,7 +441,7 @@ function saveEditedPoint() {
   var photoFile = Photos.getFile('e-photo');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
 
-  // Если добавляем с карты — подставляем координаты
+  // Подставляем координаты из клика по карте
   if (mapCoords) {
     if (data.xLocal == null) data.xLocal = mapCoords.xLocal;
     if (data.yLocal == null) data.yLocal = mapCoords.yLocal;
@@ -459,42 +452,40 @@ function saveEditedPoint() {
     var sk = MapModule.wgs84ToSK42(data.lat, data.lon);
     data.xLocal = sk.x; data.yLocal = sk.y;
   }
+
   showLoader('Сохранение...');
   closeEditModal();
-
   AppState.syncing = true;
   var chain;
 
-  // Создание с карты (не редактирование)
   if (isMapAdd) {
+    // Новая точка с карты: create → upload → redraw
     chain = Points.create(data).then(function(savedPoint) {
       if (!photoFile || !savedPoint || !savedPoint.id) return null;
       showLoader('Загрузка фото...');
-      // Ждём 2 сек чтобы Apps Script записал строку createPoint
-      return new Promise(function(r) { setTimeout(r, 2000); }).then(function() {
-        return Photos.uploadAndReplace(photoFile, savedPoint.id);
-      }).then(function(url) {
-        if (url) {
-          // Обновляем photoUrls в Sheets
-          return Points.update(savedPoint.id, { photoUrls: [url] });
-        }
-      }).catch(function(e) {
-        console.warn('Photo upload after map-add:', e.message);
+      return Photos.upload(photoFile, savedPoint.id).catch(function(photoErr) {
+        Diagnostics.setError('photo', photoErr.message);
+        alert('Точка сохранена, но фото не загрузилось: ' + photoErr.message);
       });
     }).then(function() {
       if (_mapSchemeImg) redrawMap();
     });
+
   } else if (photoFile) {
+    // Редактирование с заменой фото: upload → update с новым URL
     showLoader('Загрузка фото...');
-    chain = Photos.uploadAndReplace(photoFile, id).then(function(newUrl) {
-      if (newUrl) {
-        data.photoUrls = [newUrl]; // атомарная замена подтверждена
-      }
-      // newUrl=null — таймаут, сохраняем поля без изменения photoUrls
+    chain = Photos.upload(photoFile, id).then(function(driveUrl) {
+      data.photoUrls = [driveUrl];
+      return Points.update(id, data);
+    }).catch(function(photoErr) {
+      Diagnostics.setError('photo', photoErr.message);
+      alert('Фото не загрузилось: ' + photoErr.message);
+      // Сохраняем остальные поля без изменения фото
       return Points.update(id, data);
     });
+
   } else {
-    // Фото не меняем — не передаём photoUrls, сервер возьмёт из Sheets
+    // Редактирование без фото — сервер сохранит текущий photoUrls
     chain = Points.update(id, data);
   }
 
@@ -502,6 +493,7 @@ function saveEditedPoint() {
     return Points.load();
   }).then(function() {
     renderPointsList();
+    if (_mapSchemeImg) redrawMap();
     Diagnostics.set('pointsLoaded', Points.getList().length);
     AppState.syncing = false;
     hideLoader();
@@ -520,15 +512,13 @@ function deletePointPhoto() {
   AppState.syncing = true;
   showLoader('Удаление фото...');
 
+  // POST deletePhoto (сервер удаляет файл с Drive и чистит Sheets)
   Api.deletePhoto(id).then(function() {
-    // Ждём 1.5 сек — Apps Script завершает запись
-    return new Promise(function(r) { setTimeout(r, 1500); });
-  }).then(function() {
+    // Обновляем точку локально с пустым photoUrls
     return Points.update(id, { photoUrls: [] });
   }).then(function() {
     return Points.load();
   }).then(function() {
-    // Обновляем UI только после подтверждения
     var preview = document.getElementById('e-photo-preview');
     if (preview) preview.innerHTML = '';
     var delBtn = document.getElementById('e-delete-photo-btn');
@@ -538,6 +528,7 @@ function deletePointPhoto() {
     hideLoader();
   }).catch(function(err) {
     Diagnostics.setError('photo', 'Удаление фото: ' + err.message);
+    alert('Ошибка удаления фото: ' + err.message);
     AppState.syncing = false;
     hideLoader();
   });
@@ -1029,7 +1020,6 @@ function showMapPointCard(p) {
         (p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—') + '  Y: ' +
         (p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—') + '</div>' : '') +
     (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
-    (p.xLocal != null ? '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>' : '') +
     '</div>' +
     '<div class="map-point-card__actions">' +
     '<button class="btn btn-sm btn-outline map-card-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
