@@ -523,7 +523,9 @@ function renderMap() {
       canvas.width  = img.width;
       canvas.height = img.height;
       var ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Белый фон — PNG с прозрачностью иначе даёт чёрный
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
     };
     img.src = dataUrl;
