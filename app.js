@@ -31,6 +31,14 @@ document.addEventListener('DOMContentLoaded', function() {
   Photos.initPhotoInput('f-photo', 'f-photo-preview');
   initSettings();
   Diagnostics.render();
+  // Статус-бар: сеть
+  function updateNetStatus() {
+    var el = document.getElementById('sb-net');
+    if (el) el.textContent = navigator.onLine ? '🟢 онлайн' : '🔴 офлайн';
+  }
+  updateNetStatus();
+  window.addEventListener('online',  updateNetStatus);
+  window.addEventListener('offline', updateNetStatus);
 
   Promise.all([Workers.load(), Points.load(), Schemes.load()]).then(function() {
     renderWorkers();
@@ -134,6 +142,11 @@ function renderPointsList() {
       html += '</div>';
     }
     if (p.domain)  html += '<div>📍 ' + p.domain + '</div>';
+    if (p.xLocal != null || p.yLocal != null) {
+      var xStr = p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—';
+      var yStr = p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—';
+      html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + xStr + '  Y: ' + yStr + '</div>';
+    }
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
     if (p.xLocal != null) html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>';
     html += '</div>';
@@ -302,12 +315,14 @@ function saveNewPoint() {
       return Photos.uploadAndReplace(photoFile, savedPoint.id);
     }).then(function(url) {
       if (url) {
-        // Гарантированно записываем URL через updatePoint
-        return Points.update(savedPoint.id, { photoUrls: [url] }).then(function() {
-          return url;
-        });
+        // uploadPhoto уже записал URL в Sheets напрямую.
+        // Обновляем только локальный кэш.
+        var pt = Points.getById(savedPoint.id);
+        if (pt) {
+          pt.photoUrls = [url];
+          Storage.cachePoints(Points.getList());
+        }
       }
-      return null;
     });
   }).then(function() {
     resetAddForm();
@@ -371,8 +386,8 @@ function openEditModal(id) {
   setField('e-domain',    p.domain      || '');
   setField('e-status',    p.status      || 'Новая');
   setField('e-comment',   p.comment     || '');
-  setField('e-xlocal',    p.xLocal      != null ? p.xLocal : '');
-  setField('e-ylocal',    p.yLocal      != null ? p.yLocal : '');
+  setField('e-xlocal', p.xLocal != null ? Number(p.xLocal).toFixed(4) : '');
+  setField('e-ylocal', p.yLocal != null ? Number(p.yLocal).toFixed(4) : '');
   updateWorkerSelects();
   setField('e-worker', p.worker || '');
   // Очищаем coord-info при редактировании
@@ -640,6 +655,9 @@ function redrawMap() {
     MapModule.drawPoints(ctx, Points.getList(), _mapSchemeImg.width, _mapSchemeImg.height);
   }
   ctx.restore();
+  // Обновляем масштаб в статус-баре
+  var sbScale = document.getElementById('sb-scale');
+  if (sbScale) sbScale.textContent = 'x' + _mapScale.toFixed(2);
 }
 
 function initMapInteraction(canvas) {
@@ -733,6 +751,21 @@ function initMapInteraction(canvas) {
       redrawMap();
       hideMapTooltip();
       return;
+    }
+
+    // Обновляем статус-бар с координатами курсора
+    if (_mapSchemeImg && typeof MapModule !== 'undefined') {
+      var imgX2 = (cx - _mapOffX) / _mapScale;
+      var imgY2 = (cy - _mapOffY) / _mapScale;
+      if (imgX2 >= 0 && imgX2 <= _mapSchemeImg.width &&
+          imgY2 >= 0 && imgY2 <= _mapSchemeImg.height) {
+        var loc = MapModule.pixelToLocal(imgX2, imgY2, _mapSchemeImg.width, _mapSchemeImg.height);
+        var wgs = MapModule.sk42ToWgs84(loc.x, loc.y);
+        var sbEl = document.getElementById('sb-coords');
+        if (sbEl) sbEl.textContent =
+          'X: ' + loc.x.toFixed(4) + '  Y: ' + loc.y.toFixed(4) +
+          '  |  ' + wgs.lat.toFixed(5) + '°N  ' + wgs.lon.toFixed(5) + '°E';
+      }
     }
 
     // Tooltip при наведении на точку
@@ -1005,6 +1038,10 @@ function showMapPointCard(p) {
     (p.waterColor ? '<div>🎨 ' + p.waterColor + '</div>' : '') +
     (p.wall       ? '<div>🏔 ' + p.wall      + '</div>' : '') +
     (p.domain     ? '<div>📍 ' + p.domain    + '</div>' : '') +
+    (p.xLocal != null || p.yLocal != null
+      ? '<div style="font-size:11px;color:var(--gray-600)">X: ' +
+        (p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—') + '  Y: ' +
+        (p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—') + '</div>' : '') +
     (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
     (p.xLocal != null ? '<div style="font-size:11px;color:var(--gray-600)">X: ' + formatCoord(p.xLocal) + '  Y: ' + formatCoord(p.yLocal) + '</div>' : '') +
     '</div>' +
@@ -1112,7 +1149,8 @@ function uploadScheme() {
 // ── GPS для формы ────────────────────────────────────────
 function getGPSForForm(prefix) {
   if (!navigator.geolocation) { alert('GPS не поддерживается'); return; }
-  var btn = document.getElementById(prefix + '-btn-gps');
+  var btnId = (prefix === 'f') ? 'btn-gps' : (prefix + '-btn-gps');
+  var btn   = document.getElementById(btnId);
   if (btn) { btn.textContent = '⏳...'; btn.disabled = true; }
   navigator.geolocation.getCurrentPosition(function(pos) {
     var lat = pos.coords.latitude;
@@ -1174,7 +1212,8 @@ function getField(id) {
   return el ? el.value.trim() : '';
 }
 function parseFloatOrNull(v) {
-  var n = parseFloat(v);
+  if (v == null || String(v).trim() === '') return null;
+  var n = parseFloat(String(v).replace(',', '.'));
   return isNaN(n) ? null : n;
 }
 function initials(name) {

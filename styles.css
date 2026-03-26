@@ -778,3 +778,22 @@ html, body {
   font-weight: 600;
   margin-top: 4px;
 }
+
+/* ── Status bar ──────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  background: var(--gray-900);
+  color: #aaa;
+  font-size: 11px;
+  font-family: monospace;
+  flex-shrink: 0;
+  height: 24px;
+  overflow: hidden;
+}
+.status-bar #sb-coords { color: #7dd; min-width: 200px; }
+.status-bar #sb-scale  { color: #da7; }
+.status-bar #sb-net    { color: #7d7; }
+.sb-sep { color: #444; }
