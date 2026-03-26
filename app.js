@@ -840,29 +840,7 @@ function initMapInteraction(canvas) {
   });
 }
 
-function showMapTooltip(p, clientX, clientY) {
-  var tip = document.getElementById('map-tooltip');
-  if (!tip) return;
-  var lines = ['<strong>#' + (p.pointNumber || '?') + ' — ' + (p.status || '') + '</strong>'];
-  if (p.worker)    lines.push('👤 ' + p.worker);
-  if (p.createdAt) lines.push('📅 ' + formatDate(p.createdAt));
-  if (p.intensity) lines.push('💧 ' + p.intensity + (p.flowRate != null ? ' · ' + p.flowRate + ' л/с' : ''));
-  tip.innerHTML = lines.join('<br>');
-  // Позиционируем над курсором
-  var x = clientX + 12;
-  var y = clientY - 8;
-  var tipW = 200;
-  if (x + tipW > window.innerWidth) x = clientX - tipW - 12;
-  if (y < 8) y = 8;
-  tip.style.left = x + 'px';
-  tip.style.top  = y + 'px';
-  tip.style.display = 'block';
-}
 
-function hideMapTooltip() {
-  var tip = document.getElementById('map-tooltip');
-  if (tip) tip.style.display = 'none';
-}
 
 function initMapZoomButtons() {
   var wrap = document.getElementById('map-scheme-wrap');
