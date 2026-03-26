@@ -84,7 +84,7 @@ function switchTab(name) {
   });
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
-  if (name === 'map')      renderMap();
+  if (name === 'map')    { _mapSchemeImg = null; renderMap(); }
   if (name === 'settings') renderSettingsSchemes();
   if (name === 'workers') renderWorkerManageList();
 }
@@ -493,8 +493,11 @@ function getGPS() {
 }
 
 // ── Карта ────────────────────────────────────────────────
+// Хранит последнее загруженное изображение схемы для перерисовки
+var _mapSchemeImg = null;
+
 function renderMap() {
-  var canvas  = document.getElementById('map-canvas');
+  var canvas   = document.getElementById('map-canvas');
   var noScheme = document.getElementById('map-no-scheme');
   var weekLabel = document.getElementById('map-week-label');
   if (!canvas) return;
@@ -512,6 +515,12 @@ function renderMap() {
   if (noScheme) noScheme.style.display = 'none';
   canvas.style.display = 'block';
 
+  // Если схема уже загружена — просто перерисовываем точки
+  if (_mapSchemeImg) {
+    drawMapCanvas(canvas, _mapSchemeImg);
+    return;
+  }
+
   Schemes.getCurrentImage().then(function(dataUrl) {
     if (!dataUrl) {
       canvas.style.display = 'none';
@@ -520,15 +529,76 @@ function renderMap() {
     }
     var img = new Image();
     img.onload = function() {
-      canvas.width  = img.width;
-      canvas.height = img.height;
-      var ctx = canvas.getContext('2d');
-      // Белый фон — PNG с прозрачностью иначе даёт чёрный
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
+      _mapSchemeImg = img;
+      drawMapCanvas(canvas, img);
+      initMapClick(canvas, img);
     };
     img.src = dataUrl;
+  });
+}
+
+function drawMapCanvas(canvas, img) {
+  canvas.width  = img.width;
+  canvas.height = img.height;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  // Рисуем точки поверх схемы
+  if (typeof MapModule !== 'undefined') {
+    MapModule.drawPoints(ctx, Points.getList(), img.width, img.height);
+  }
+}
+
+function initMapClick(canvas, img) {
+  if (canvas._clickBound) return;
+  canvas._clickBound = true;
+  canvas.addEventListener('click', function(e) {
+    if (typeof MapModule === 'undefined') return;
+    var rect  = canvas.getBoundingClientRect();
+    var scaleX = canvas.width  / rect.width;
+    var scaleY = canvas.height / rect.height;
+    var cx = (e.clientX - rect.left)  * scaleX;
+    var cy = (e.clientY - rect.top)   * scaleY;
+    var p = MapModule.findPointAt(cx, cy, Points.getList(), img.width, img.height, 1, 0, 0);
+    if (p) showMapPointCard(p);
+  });
+}
+
+function showMapPointCard(p) {
+  var existing = document.getElementById('map-point-card');
+  if (existing) existing.remove();
+
+  var card = document.createElement('div');
+  card.id = 'map-point-card';
+  card.className = 'map-point-card';
+  card.innerHTML =
+    '<div class="map-point-card__header">' +
+    '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>' +
+    '<button class="modal-close" id="map-card-close">✕</button>' +
+    '</div>' +
+    '<div class="map-point-card__body">' +
+    '<div>👤 ' + (p.worker || '—') + '</div>' +
+    '<div>📅 ' + formatDate(p.createdAt) + '</div>' +
+    (p.status    ? '<div>📌 ' + p.status    + '</div>' : '') +
+    (p.intensity ? '<div>💧 ' + p.intensity + (p.flowRate != null ? ' · ' + p.flowRate + ' л/с' : '') + '</div>' : '') +
+    (p.waterColor ? '<div>🎨 ' + p.waterColor + '</div>' : '') +
+    (p.wall       ? '<div>🏔 ' + p.wall      + '</div>' : '') +
+    (p.domain     ? '<div>📍 ' + p.domain    + '</div>' : '') +
+    (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
+    '</div>' +
+    '<div class="map-point-card__actions">' +
+    '<button class="btn btn-sm btn-outline map-card-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
+    '</div>';
+
+  document.getElementById('page-map').appendChild(card);
+
+  document.getElementById('map-card-close').addEventListener('click', function() {
+    card.remove();
+  });
+  card.querySelector('.map-card-edit').addEventListener('click', function() {
+    card.remove();
+    openEditModal(this.dataset.pid);
   });
 }
 

@@ -149,7 +149,13 @@
       </div>
       <canvas id="map-canvas"></canvas>
     </div>
-    <div class="map-legend" id="map-week-label"></div>
+    <div class="map-legend">
+    <span id="map-week-label" style="font-weight:600;margin-right:8px"></span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#1a73e8"></span>Новая</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#34a853"></span>Активная</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#f9ab00"></span>Иссякает</span>
+    <span class="map-legend-item"><span class="map-legend-dot" style="background:#ea4335"></span>Пересохла</span>
+  </div>
   </div>
 
   <!-- Настройки -->
@@ -312,6 +318,7 @@
 <script src="workers.js"></script>
 <script src="points.js"></script>
 <script src="photos.js"></script>
+<script src="map.js"></script>
 <script src="schemes.js"></script>
 <script src="app.js"></script>
 </body>

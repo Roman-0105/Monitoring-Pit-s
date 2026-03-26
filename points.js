@@ -29,8 +29,12 @@ const Points = (() => {
       worker:      data.worker      || '',
       lat:         data.lat         != null ? data.lat   : null,
       lon:         data.lon         != null ? data.lon   : null,
-      xLocal:      data.xLocal      != null ? data.xLocal : null,
-      yLocal:      data.yLocal      != null ? data.yLocal : null,
+      xLocal:      data.xLocal      != null ? data.xLocal : (
+                     data.lat && data.lon && typeof MapModule !== 'undefined'
+                     ? MapModule.wgs84ToSK42(data.lat, data.lon).x : null),
+      yLocal:      data.yLocal      != null ? data.yLocal : (
+                     data.lat && data.lon && typeof MapModule !== 'undefined'
+                     ? MapModule.wgs84ToSK42(data.lat, data.lon).y : null),
       intensity:   data.intensity   || '',
       flowRate:    data.flowRate    != null ? data.flowRate : null,
       waterColor:  data.waterColor  || '',

@@ -544,6 +544,7 @@ html, body {
   max-width: 100%;
   height: auto;
   touch-action: pan-x pan-y;
+  background: #ffffff;
 }
 .map-no-scheme {
   text-align: center;
@@ -602,4 +603,64 @@ html, body {
   border-radius: var(--radius-sm);
   display: block;
   margin-bottom: 8px;
+}
+
+/* ── Map point card ──────────────────────────────────── */
+.map-point-card {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 32px);
+  max-width: 380px;
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--gray-200);
+  z-index: 100;
+  overflow: hidden;
+}
+.map-point-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--gray-100);
+}
+.map-point-card__body {
+  padding: 10px 14px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--gray-800);
+}
+.map-point-card__actions {
+  padding: 8px 14px 12px;
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Map legend ──────────────────────────────────────── */
+.map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--white);
+  border-top: 1px solid var(--gray-200);
+  font-size: 12px;
+}
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.map-legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  flex-shrink: 0;
 }
