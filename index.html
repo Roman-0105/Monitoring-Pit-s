@@ -44,12 +44,28 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Координаты</label>
+        <label class="form-label">Координаты WGS-84</label>
         <div class="form-row">
           <input class="form-input" id="f-lat" type="number" step="any" placeholder="Широта">
           <input class="form-input" id="f-lon" type="number" step="any" placeholder="Долгота">
         </div>
-        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:8px">📍 GPS</button>
+        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:6px">
+          📍 Определить GPS
+        </button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Локальные координаты (СК-42)</label>
+        <div class="form-row">
+          <div style="position:relative;flex:1">
+            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">X</label>
+            <input class="form-input" id="f-xlocal" type="number" step="1" placeholder="X локальный" style="padding-top:16px">
+          </div>
+          <div style="position:relative;flex:1">
+            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">Y</label>
+            <input class="form-input" id="f-ylocal" type="number" step="1" placeholder="Y локальный" style="padding-top:16px">
+          </div>
+        </div>
+        <p class="form-hint" id="f-map-coord-info"></p>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -217,6 +233,8 @@
     </div>
   </div>
 
+  <!-- Tooltip для карты -->
+  <div id="map-tooltip" class="map-tooltip" style="display:none"></div>
 </div><!-- #app -->
 
 <!-- Модальное окно редактирования -->
@@ -239,11 +257,28 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Координаты</label>
+          <label class="form-label">Координаты WGS-84</label>
           <div class="form-row">
             <input class="form-input" id="e-lat" type="number" step="any" placeholder="Широта">
             <input class="form-input" id="e-lon" type="number" step="any" placeholder="Долгота">
           </div>
+          <button type="button" class="btn btn-outline btn-sm" id="e-btn-gps" style="margin-top:6px">
+            📍 Определить GPS
+          </button>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Локальные координаты (СК-42)</label>
+          <div class="form-row">
+            <div style="position:relative;flex:1">
+              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">X</label>
+              <input class="form-input" id="e-xlocal" type="number" step="1" placeholder="X локальный" style="padding-top:16px">
+            </div>
+            <div style="position:relative;flex:1">
+              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">Y</label>
+              <input class="form-input" id="e-ylocal" type="number" step="1" placeholder="Y локальный" style="padding-top:16px">
+            </div>
+          </div>
+          <p class="form-hint" id="e-map-coord-info"></p>
         </div>
         <div class="form-row">
           <div class="form-group">

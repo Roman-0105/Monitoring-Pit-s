@@ -751,3 +751,30 @@ html, body {
 .map-scheme-wrap {
   position: relative;
 }
+
+/* ── Map tooltip ─────────────────────────────────────── */
+.map-tooltip {
+  position: fixed;
+  background: rgba(32,33,36,.88);
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  pointer-events: none;
+  z-index: 9999;
+  max-width: 200px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.map-tooltip strong {
+  font-size: 13px;
+  display: block;
+  margin-bottom: 2px;
+}
+
+/* ── Coord info hint ─────────────────────────────────── */
+#e-map-coord-info:not(:empty) {
+  color: var(--blue);
+  font-weight: 600;
+  margin-top: 4px;
+}

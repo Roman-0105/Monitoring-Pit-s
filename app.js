@@ -265,8 +265,15 @@ function renameWorker(id, newName) {
 function initAddForm() {
   var form = document.getElementById('add-form');
   if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveNewPoint(); });
+
   var gps = document.getElementById('btn-gps');
-  if (gps) gps.addEventListener('click', getGPS);
+  if (gps) gps.addEventListener('click', function() { getGPSForForm('f'); });
+
+  // Пересчёт X/Y при ручном вводе lat/lon
+  var fLat = document.getElementById('f-lat');
+  var fLon = document.getElementById('f-lon');
+  if (fLat) fLat.addEventListener('change', function() { recalcLocalCoords('f'); });
+  if (fLon) fLon.addEventListener('change', function() { recalcLocalCoords('f'); });
 }
 
 function resetAddForm() {
@@ -320,6 +327,16 @@ function initEditModal() {
   var delBtn = document.getElementById('e-delete-photo-btn');
   if (delBtn) delBtn.addEventListener('click', deletePointPhoto);
 
+  // GPS кнопка в edit-форме
+  var gpsEditBtn = document.getElementById('e-btn-gps');
+  if (gpsEditBtn) gpsEditBtn.addEventListener('click', function() { getGPSForForm('e'); });
+
+  // При изменении lat/lon вручную — пересчитываем X/Y
+  var eLat = document.getElementById('e-lat');
+  var eLon = document.getElementById('e-lon');
+  if (eLat) eLat.addEventListener('change', function() { recalcLocalCoords('e'); });
+  if (eLon) eLon.addEventListener('change', function() { recalcLocalCoords('e'); });
+
   // Кнопка добавления точки на карте
   var addMapBtn = document.getElementById('btn-map-add-point');
   if (addMapBtn) addMapBtn.addEventListener('click', toggleMapAddMode);
@@ -341,8 +358,13 @@ function openEditModal(id) {
   setField('e-domain',    p.domain      || '');
   setField('e-status',    p.status      || 'Новая');
   setField('e-comment',   p.comment     || '');
+  setField('e-xlocal',    p.xLocal      != null ? p.xLocal : '');
+  setField('e-ylocal',    p.yLocal      != null ? p.yLocal : '');
   updateWorkerSelects();
   setField('e-worker', p.worker || '');
+  // Очищаем coord-info при редактировании
+  var coordInfo = document.getElementById('e-map-coord-info');
+  if (coordInfo) coordInfo.textContent = '';
 
   // Текущее фото
   var preview = document.getElementById('e-photo-preview');
@@ -512,19 +534,7 @@ function initDiagButtons() {
 }
 
 // ── GPS ──────────────────────────────────────────────────
-function getGPS() {
-  if (!navigator.geolocation) { alert('GPS не поддерживается'); return; }
-  var btn = document.getElementById('btn-gps');
-  if (btn) btn.textContent = '⏳...';
-  navigator.geolocation.getCurrentPosition(function(pos) {
-    setField('f-lat', pos.coords.latitude.toFixed(7));
-    setField('f-lon', pos.coords.longitude.toFixed(7));
-    if (btn) btn.textContent = '📍 GPS';
-  }, function(err) {
-    alert('GPS: ' + err.message);
-    if (btn) btn.textContent = '📍 GPS';
-  }, { enableHighAccuracy: true, timeout: 15000 });
-}
+// getGPS заменён на getGPSForForm(prefix)
 
 // ── Карта ────────────────────────────────────────────────
 // ── Состояние карты ──────────────────────────────────────
@@ -704,7 +714,33 @@ function initMapInteraction(canvas) {
     _mapDragging = false;
     canvas.style.cursor = _mapAddMode ? 'crosshair' : 'grab';
   });
-  canvas.addEventListener('mouseleave', function() { _mapDragging = false; });
+  canvas.addEventListener('mouseleave', function() {
+    _mapDragging = false;
+    hideMapTooltip();
+  });
+
+  // Tooltip при наведении
+  canvas.addEventListener('mousemove', function(e) {
+    if (_mapDragging || _mapAddMode || !_mapSchemeImg) {
+      hideMapTooltip();
+      return;
+    }
+    var rect = canvas.getBoundingClientRect();
+    var cx   = e.clientX - rect.left;
+    var cy   = e.clientY - rect.top;
+    var imgX = (cx - _mapOffX) / _mapScale;
+    var imgY = (cy - _mapOffY) / _mapScale;
+    if (typeof MapModule !== 'undefined') {
+      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      if (p) {
+        showMapTooltip(p, e.clientX, e.clientY);
+      } else {
+        hideMapTooltip();
+      }
+    }
+  });
+
   canvas.style.cursor = 'grab';
 
   // ── Клик — добавить точку или открыть карточку ───────────
@@ -730,6 +766,30 @@ function initMapInteraction(canvas) {
       if (p) showMapPointCard(p);
     }
   });
+}
+
+function showMapTooltip(p, clientX, clientY) {
+  var tip = document.getElementById('map-tooltip');
+  if (!tip) return;
+  var lines = ['<strong>#' + (p.pointNumber || '?') + ' — ' + (p.status || '') + '</strong>'];
+  if (p.worker)    lines.push('👤 ' + p.worker);
+  if (p.createdAt) lines.push('📅 ' + formatDate(p.createdAt));
+  if (p.intensity) lines.push('💧 ' + p.intensity + (p.flowRate != null ? ' · ' + p.flowRate + ' л/с' : ''));
+  tip.innerHTML = lines.join('<br>');
+  // Позиционируем над курсором
+  var x = clientX + 12;
+  var y = clientY - 8;
+  var tipW = 200;
+  if (x + tipW > window.innerWidth) x = clientX - tipW - 12;
+  if (y < 8) y = 8;
+  tip.style.left = x + 'px';
+  tip.style.top  = y + 'px';
+  tip.style.display = 'block';
+}
+
+function hideMapTooltip() {
+  var tip = document.getElementById('map-tooltip');
+  if (tip) tip.style.display = 'none';
 }
 
 function initMapZoomButtons() {
@@ -801,14 +861,16 @@ function openAddPointModal(xLocal, yLocal) {
   if (hint)   hint.style.display = 'none';
 
   AppState.editingPointId = null;
-
-  // Очищаем поля
   ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-domain','e-comment']
     .forEach(function(id) { setField(id, ''); });
   setField('e-status', 'Новая');
   updateWorkerSelects();
 
-  // Вычисляем GPS из местных координат СК-42 → WGS-84
+  // Заполняем местные координаты
+  setField('e-xlocal', xLocal);
+  setField('e-ylocal', yLocal);
+
+  // Обратный пересчёт: СК-42 → WGS-84
   var wgsLat = '', wgsLon = '';
   if (typeof MapModule !== 'undefined' && MapModule.sk42ToWgs84) {
     var wgs = MapModule.sk42ToWgs84(xLocal, yLocal);
@@ -820,29 +882,16 @@ function openAddPointModal(xLocal, yLocal) {
   setField('e-lat', wgsLat);
   setField('e-lon', wgsLon);
 
+  // Подсказка с координатами
+  var coordInfo = document.getElementById('e-map-coord-info');
+  if (coordInfo) coordInfo.textContent = 'X: ' + xLocal + '  Y: ' + yLocal + ' (из карты)';
+
   var preview = document.getElementById('e-photo-preview');
   if (preview) preview.innerHTML = '';
   Photos.clearInput('e-photo', 'e-new-photo-preview');
   var delBtn = document.getElementById('e-delete-photo-btn');
   if (delBtn) delBtn.style.display = 'none';
 
-  // Показываем местные координаты в информационной строке
-  var coordInfo = document.getElementById('e-map-coord-info');
-  if (!coordInfo) {
-    coordInfo = document.createElement('p');
-    coordInfo.id = 'e-map-coord-info';
-    coordInfo.className = 'form-hint';
-    coordInfo.style.cssText = 'margin-top:4px;color:var(--blue);font-weight:600';
-    var latGroup = document.getElementById('e-lat');
-    if (latGroup && latGroup.parentNode && latGroup.parentNode.parentNode) {
-      latGroup.parentNode.parentNode.appendChild(coordInfo);
-    }
-  }
-  if (coordInfo) {
-    coordInfo.textContent = 'X (СК-42): ' + xLocal + '  Y (СК-42): ' + yLocal;
-  }
-
-  // Сохраняем местные координаты
   var form = document.getElementById('edit-form');
   form._mapCoords = { xLocal: xLocal, yLocal: yLocal };
 
@@ -852,7 +901,6 @@ function openAddPointModal(xLocal, yLocal) {
 
   document.getElementById('edit-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-
   setTimeout(function() {
     var f = document.getElementById('e-num');
     if (f) f.focus();
@@ -983,6 +1031,44 @@ function uploadScheme() {
   });
 }
 
+// ── GPS для формы ────────────────────────────────────────
+function getGPSForForm(prefix) {
+  if (!navigator.geolocation) { alert('GPS не поддерживается'); return; }
+  var btn = document.getElementById(prefix + '-btn-gps');
+  if (btn) { btn.textContent = '⏳...'; btn.disabled = true; }
+  navigator.geolocation.getCurrentPosition(function(pos) {
+    var lat = pos.coords.latitude;
+    var lon = pos.coords.longitude;
+    setField(prefix + '-lat', lat.toFixed(7));
+    setField(prefix + '-lon', lon.toFixed(7));
+    // Пересчитываем в локальные
+    if (typeof MapModule !== 'undefined') {
+      var sk = MapModule.wgs84ToSK42(lat, lon);
+      setField(prefix + '-xlocal', sk.x);
+      setField(prefix + '-ylocal', sk.y);
+      var info = document.getElementById(prefix + '-map-coord-info');
+      if (info) info.textContent = 'X: ' + sk.x + '  Y: ' + sk.y + ' (из GPS)';
+    }
+    if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
+  }, function(err) {
+    alert('GPS: ' + err.message);
+    if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
+  }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+// При изменении lat/lon вручную — пересчитываем X/Y
+function recalcLocalCoords(prefix) {
+  var lat = parseFloatOrNull(getField(prefix + '-lat'));
+  var lon = parseFloatOrNull(getField(prefix + '-lon'));
+  if (lat && lon && typeof MapModule !== 'undefined') {
+    var sk = MapModule.wgs84ToSK42(lat, lon);
+    setField(prefix + '-xlocal', sk.x);
+    setField(prefix + '-ylocal', sk.y);
+    var info = document.getElementById(prefix + '-map-coord-info');
+    if (info) info.textContent = 'X: ' + sk.x + '  Y: ' + sk.y;
+  }
+}
+
 // ── Утилиты ───────────────────────────────────────────────
 function readFormFields(prefix) {
   return {
@@ -990,6 +1076,8 @@ function readFormFields(prefix) {
     worker:      getField(prefix + '-worker'),
     lat:         parseFloatOrNull(getField(prefix + '-lat')),
     lon:         parseFloatOrNull(getField(prefix + '-lon')),
+    xLocal:      parseFloatOrNull(getField(prefix + '-xlocal')),
+    yLocal:      parseFloatOrNull(getField(prefix + '-ylocal')),
     intensity:   getField(prefix + '-intensity'),
     flowRate:    parseFloatOrNull(getField(prefix + '-flowrate')),
     waterColor:  getField(prefix + '-color'),
