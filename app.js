@@ -595,20 +595,23 @@ function uploadScheme() {
   var file = fileInput && fileInput.files && fileInput.files[0];
   if (!file) { alert('Выберите файл схемы'); return; }
 
-  var weekKey = Schemes.currentWeekKey();
-  if (statusEl) statusEl.textContent = 'Загрузка...';
+  var weekKey   = Schemes.currentWeekKey();
   var uploadBtn = document.getElementById('btn-upload-scheme');
+  if (statusEl)  statusEl.textContent = '⏳ Загрузка... (~15-30 сек)';
   if (uploadBtn) uploadBtn.disabled = true;
+  AppState.syncing = true;
 
   Schemes.upload(file, weekKey, Storage.getDeviceId()).then(function() {
     if (statusEl) statusEl.textContent = '✅ Схема загружена — ' + Schemes.formatWeekKey(weekKey);
-    document.getElementById('scheme-preview').innerHTML = '';
-    fileInput.value = '';
+    var preview = document.getElementById('scheme-preview');
+    if (preview) preview.innerHTML = '';
+    if (fileInput) fileInput.value = '';
     renderSettingsSchemes();
   }).catch(function(err) {
-    if (statusEl) statusEl.textContent = '❌ Ошибка: ' + err.message;
+    if (statusEl) statusEl.textContent = '❌ ' + err.message;
   }).then(function() {
     if (uploadBtn) uploadBtn.disabled = false;
+    AppState.syncing = false;
   });
 }
 
@@ -650,6 +653,7 @@ function formatDate(iso) {
   if (!iso) return '—';
   try {
     var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 10) || '—';
     return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  } catch(e) { return iso; }
+  } catch(e) { return '—'; }
 }

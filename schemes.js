@@ -57,7 +57,13 @@ var Schemes = (function() {
 
   function upload(file, weekKey, deviceId) {
     Diagnostics.set('schemeStatus', 'loading');
-    return new Promise(function(resolve, reject) {
+
+    // Общий таймаут 40 сек
+    var timeoutP = new Promise(function(_, reject) {
+      setTimeout(function() { reject(new Error('Таймаут загрузки схемы')); }, 40000);
+    });
+
+    var uploadP = new Promise(function(resolve, reject) {
       var reader = new FileReader();
       reader.onload = function(e) {
         var dataUrl = e.target.result;
@@ -76,15 +82,16 @@ var Schemes = (function() {
         uploadedBy: deviceId || Storage.getDeviceId(),
       });
     }).then(function() {
-      // Сбрасываем кэш изображения для этой недели
       delete _imgCache[weekKey];
-      // Перечитываем список схем
-      return new Promise(function(r) { setTimeout(r, 2000); });
+      // Ждём 4 сек и перечитываем
+      return new Promise(function(r) { setTimeout(r, 4000); });
     }).then(function() {
       return load();
     }).then(function() {
       Diagnostics.set('schemeStatus', 'loaded');
-    }).catch(function(err) {
+    });
+
+    return Promise.race([uploadP, timeoutP]).catch(function(err) {
       Diagnostics.setError('scheme', err.message);
       Diagnostics.set('schemeStatus', 'error');
       throw err;
