@@ -10,7 +10,7 @@ var Domens = (function() {
 
   var POLYGONS = [
     {
-      name:   'Дomen-1',
+      name:   'Domen-1',
       fill:   'rgba(26, 115, 232, 0.25)',
       stroke: '#1a73e8',
       pts: [
@@ -119,7 +119,7 @@ var Domens = (function() {
       ]
     },
     {
-      name:   'Дomen-2',
+      name:   'Domen-2',
       fill:   'rgba(52, 168, 83, 0.25)',
       stroke: '#34a853',
       pts: [
@@ -239,7 +239,7 @@ var Domens = (function() {
       ]
     },
     {
-      name:   'Дomen-3',
+      name:   'Domen-3',
       fill:   'rgba(251, 188, 5, 0.25)',
       stroke: '#f9ab00',
       pts: [
@@ -360,7 +360,7 @@ var Domens = (function() {
       ]
     },
     {
-      name:   'Дomen-4',
+      name:   'Domen-4',
       fill:   'rgba(234, 67, 53, 0.25)',
       stroke: '#ea4335',
       pts: [
@@ -461,7 +461,7 @@ var Domens = (function() {
       ]
     },
     {
-      name:   'Дomen-5',
+      name:   'Domen-5',
       fill:   'rgba(124, 58, 237, 0.25)',
       stroke: '#7c3aed',
       pts: [
