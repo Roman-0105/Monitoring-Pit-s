@@ -1179,7 +1179,10 @@ function showMapPointCard(p) {
   card.className = 'map-point-card';
   card.innerHTML = html;
 
-  document.getElementById('page-map').appendChild(card);
+  // Карточка внутри контейнера карты (position:relative)
+  var mapWrap = document.getElementById('map-scheme-wrap');
+  if (!mapWrap) mapWrap = document.getElementById('page-map');
+  mapWrap.appendChild(card);
 
   // Загружаем фото из кэша
   if (hasPhoto) {

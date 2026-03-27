@@ -906,15 +906,22 @@ html, body {
   position: absolute;
   top: 8px;
   left: 8px;
-  width: 280px;
-  max-height: calc(100% - 48px);
+  width: 260px;
+  max-height: calc(100% - 16px);
   overflow-y: auto;
   background: var(--white);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
   border: 1px solid var(--gray-200);
   z-index: 200;
   font-size: 13px;
+  max-width: calc(45% - 16px);
+  /* Анимация появления */
+  animation: slideInLeft 0.18s ease;
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 .mpc-header {
   display: flex;
