@@ -454,10 +454,11 @@ function saveEditedPoint() {
   var photoFile = Photos.getFile('e-photo');
   if (!data.pointNumber) { alert('Укажите номер точки'); return; }
 
-  // Подставляем координаты из клика по карте
+  // Подставляем координаты из клика по карте ПРИНУДИТЕЛЬНО
+  // (readFormFields применяет перестановку для GPS, а для карты нужны сырые значения)
   if (mapCoords) {
-    if (data.xLocal == null) data.xLocal = mapCoords.xLocal;
-    if (data.yLocal == null) data.yLocal = mapCoords.yLocal;
+    data.xLocal = mapCoords.xLocal;
+    data.yLocal = mapCoords.yLocal;
   }
   // Если есть GPS но нет xLocal — вычисляем
   if ((data.xLocal == null || data.yLocal == null) && data.lat && data.lon &&
@@ -958,7 +959,7 @@ function openAddPointModal(xLocal, yLocal) {
   var btn    = document.getElementById('btn-map-add-point');
   var hint   = document.getElementById('map-add-hint');
   if (canvas) { canvas.classList.remove('adding-mode'); canvas.style.cursor = 'grab'; }
-  if (btn)    { btn.style.background = ''; btn.style.color = ''; }
+  if (btn)    { btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; btn.style.fontWeight = ''; btn.textContent = '➕ Добавить точку'; }
   if (hint)   hint.style.display = 'none';
 
   AppState.editingPointId = null;
@@ -967,18 +968,20 @@ function openAddPointModal(xLocal, yLocal) {
   setField('e-status', 'Новая');
   updateWorkerSelects();
 
-  // Заполняем координаты (X↔Y переставлены для отображения)
+  // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
+  //   xLocal = 45850..47350 (горизонталь, растёт слева направо) → поле X
+  //   yLocal = 15800..17350 (вертикаль,  растёт сверху вниз)    → поле Y
+  // toDisplay НЕ применяем — он нужен только для GPS-сценария
   if (typeof MapModule !== 'undefined') {
-    var disp = MapModule.toDisplay(xLocal, yLocal);
-    setField('e-xlocal', disp.displayX.toFixed(4));  // displayX = yLocal
-    setField('e-ylocal', disp.displayY.toFixed(4));  // displayY = xLocal
+    setField('e-xlocal', xLocal.toFixed(4));
+    setField('e-ylocal', yLocal.toFixed(4));
     var wgs = MapModule.sk42ToWgs84(xLocal, yLocal);
     if (wgs && wgs.lat) {
       setField('e-lat', wgs.lat.toFixed(7));
       setField('e-lon', wgs.lon.toFixed(7));
     }
     var coordInfo = document.getElementById('e-map-coord-info');
-    if (coordInfo) coordInfo.textContent = 'X: ' + disp.displayX.toFixed(4) + '  Y: ' + disp.displayY.toFixed(4) + ' (из карты)';
+    if (coordInfo) coordInfo.textContent = 'X: ' + xLocal.toFixed(4) + '  Y: ' + yLocal.toFixed(4) + ' (из карты)';
   }
 
   var preview = document.getElementById('e-photo-preview');
