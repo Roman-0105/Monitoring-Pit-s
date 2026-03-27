@@ -13,19 +13,20 @@
 
   <header class="app-header">
     <div class="brand-block">
-      <div class="brand-icon">⛏</div>
+      <div class="brand-icon">RG</div>
       <div class="brand-name">
         <span class="brand-title">КАРЬЕР ЮРГ</span>
         <span class="brand-sub">Пулково-42 / Мониторинг подземных вод</span>
       </div>
     </div>
     <nav class="tab-bar" id="tab-bar">
-      <button class="tab-btn active" data-tab="points"><span class="tab-icon">📋</span> Точки</button>
-      <button class="tab-btn" data-tab="add"><span class="tab-icon">✦</span> Добавить</button>
-      <button class="tab-btn" data-tab="map"><span class="tab-icon">🗺</span> Карта</button>
-      <button class="tab-btn" data-tab="settings"><span class="tab-icon">⚙</span> Настройки</button>
-      <button class="tab-btn" data-tab="workers"><span class="tab-icon">👥</span> Сотрудники</button>
-      <button class="tab-btn" data-tab="diag"><span class="tab-icon">◈</span> Диаг.</button>
+      <button class="tab-btn active" data-tab="points"><span class="tab-icon">◻</span> Точки</button>
+      <button class="tab-btn" data-tab="add"><span class="tab-icon">＋</span> Добавить</button>
+      <button class="tab-btn" data-tab="map"><span class="tab-icon">⌖</span> Карта</button>
+      <button class="tab-btn" data-tab="settings"><span class="tab-icon">◉</span> Настройки</button>
+      <button class="tab-btn" data-tab="workers"><span class="tab-icon">◎</span> Сотрудники</button>
+      <button class="tab-btn" data-tab="diag"><span class="tab-icon">◌</span> Диаг.</button>
+      <button class="tab-btn" data-tab="stats"><span class="tab-icon">◍</span> Аналитика</button>
     </nav>
   </header>
 
@@ -194,6 +195,15 @@
         <button class="map-legend-toggle" id="btn-legend-toggle" title="Свернуть/развернуть">−</button>
       </div>
       <div id="map-legend-body" class="map-legend-body">
+        <div class="map-filter-group">
+          <label class="form-label" for="map-filter-week">Неделя</label>
+          <select id="map-filter-week" class="filter-select filter-select--full"></select>
+        </div>
+        <div class="map-filter-group">
+          <label class="form-label" for="map-filter-worker">Сотрудник</label>
+          <select id="map-filter-worker" class="filter-select filter-select--full"></select>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line-2);margin:10px 0">
         <div class="map-legend-item">
           <span class="map-legend-dot" style="background:#1a73e8"></span>
           <span>Новая</span>
@@ -210,18 +220,11 @@
           <span class="map-legend-dot" style="background:#ea4335"></span>
           <span>Пересохла</span>
         </div>
-        <hr style="border:none;border-top:1px solid var(--gray-200);margin:8px 0">
-        <div id="map-legend-points" style="font-size:11px;color:var(--gray-600)"></div>
+        <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
+        <div id="map-legend-points" style="font-size:11px;color:var(--txt-3)"></div>
       </div>
     </div>
   </div><!-- map-container -->
-    <div class="map-legend">
-    <span id="map-week-label" style="font-weight:600;margin-right:8px"></span>
-    <span class="map-legend-item"><span class="map-legend-dot" style="background:#1a73e8"></span>Новая</span>
-    <span class="map-legend-item"><span class="map-legend-dot" style="background:#34a853"></span>Активная</span>
-    <span class="map-legend-item"><span class="map-legend-dot" style="background:#f9ab00"></span>Иссякает</span>
-    <span class="map-legend-item"><span class="map-legend-dot" style="background:#ea4335"></span>Пересохла</span>
-  </div>
   </div>
 
   <!-- Настройки -->
@@ -272,6 +275,46 @@
       <div class="card-title">Конфигурация</div>
       <div class="diag-row"><span>Apps Script URL</span><span id="script-url-status">—</span></div>
       <div class="diag-row"><span>Device ID</span><span id="device-id-display">—</span></div>
+    </div>
+  </div>
+
+  <!-- Аналитика -->
+  <div class="page" id="page-stats">
+    <div class="card">
+      <div class="card-title">Фильтры аналитики</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="stats-week">Неделя</label>
+          <select id="stats-week" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="stats-worker">Сотрудник</label>
+          <select id="stats-worker" class="form-select"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid" id="stats-grid"></div>
+
+    <div class="stats-charts-grid">
+      <div class="card">
+        <div class="card-title">Диаграмма по статусам</div>
+        <div id="stats-status-chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Диаграмма по интенсивности</div>
+        <div id="stats-intensity-chart"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Разбивка по статусам</div>
+      <div id="stats-status-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Разбивка по доменам</div>
+      <div id="stats-domain-list"></div>
     </div>
   </div>
 
