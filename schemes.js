@@ -66,6 +66,10 @@ var Schemes = (function() {
   // ── Загрузка списка с сервера ─────────────────────────────
 
   function load() {
+    if (typeof Api === 'undefined') {
+      _list = Storage.getCachedSchemes() || [];
+      return Promise.resolve(_list);
+    }
     return Api.getSchemes().then(function(schemes) {
       _list = schemes || [];
       Storage.cacheSchemes(_list);

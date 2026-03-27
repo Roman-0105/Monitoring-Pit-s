@@ -12,20 +12,30 @@
 <div id="app">
 
   <header class="app-header">
-    <h1>Фиксация подземных вод</h1>
-    <p>Карьер ЮРГ — Локальная СК (Пулково-42)</p>
+    <div class="brand-block">
+      <div class="brand-icon">⛏</div>
+      <div class="brand-name">
+        <span class="brand-title">КАРЬЕР ЮРГ</span>
+        <span class="brand-sub">Пулково-42 / Мониторинг подземных вод</span>
+      </div>
+    </div>
+    <nav class="tab-bar" id="tab-bar">
+      <button class="tab-btn active" data-tab="points"><span class="tab-icon">📋</span> Точки</button>
+      <button class="tab-btn" data-tab="add"><span class="tab-icon">✦</span> Добавить</button>
+      <button class="tab-btn" data-tab="map"><span class="tab-icon">🗺</span> Карта</button>
+      <button class="tab-btn" data-tab="settings"><span class="tab-icon">⚙</span> Настройки</button>
+      <button class="tab-btn" data-tab="workers"><span class="tab-icon">👥</span> Сотрудники</button>
+      <button class="tab-btn" data-tab="diag"><span class="tab-icon">◈</span> Диаг.</button>
+    </nav>
   </header>
-
-  <nav class="tab-bar">
-    <button class="tab-btn active" data-tab="points">📋 Точки</button>
-    <button class="tab-btn"        data-tab="add">➕ Добавить</button>
-    <button class="tab-btn"        data-tab="map">🗺 Карта</button>
-    <button class="tab-btn"        data-tab="settings">⚙️ Настройки</button>
-    <button class="tab-btn"        data-tab="diag">🔧 Диаг.</button>
-  </nav>
 
   <!-- Список точек -->
   <div class="page active" id="page-points">
+    <div class="points-header">
+      <h2 class="section-title">Список точек</h2>
+      <span class="points-count" id="points-count-badge">0 точек</span>
+    </div>
+    <div class="filter-bar" id="filter-bar"></div>
     <div id="points-list"><p class="empty-msg">Загрузка...</p></div>
   </div>
 
@@ -49,7 +59,7 @@
           <input class="form-input" id="f-lat" type="text" inputmode="decimal" placeholder="Широта">
           <input class="form-input" id="f-lon" type="text" inputmode="decimal" placeholder="Долгота">
         </div>
-        <button type="button" class="btn btn-outline btn-sm" id="btn-gps" style="margin-top:8px">
+        <button type="button" class="btn-gps" id="btn-gps" style="margin-top:8px">
           📍 Определить GPS
         </button>
       </div>
@@ -302,7 +312,7 @@
             <input class="form-input" id="e-lat" type="text" inputmode="decimal" placeholder="Широта">
             <input class="form-input" id="e-lon" type="text" inputmode="decimal" placeholder="Долгота">
           </div>
-          <button type="button" class="btn btn-outline btn-sm" id="e-btn-gps" style="margin-top:6px">
+          <button type="button" class="btn-gps" id="e-btn-gps" style="margin-top:6px">
             📍 Определить GPS
           </button>
         </div>
@@ -392,7 +402,7 @@
   </div>
 </div>
 
-<div id="loader">⏳ Загрузка...</div>
+<div id="loader"><div class="loader-spinner"></div><span id="loader-text">Загрузка...</span></div>
 
 <!-- Скрипты — порядок важен -->
 <script src="storage.js"></script>

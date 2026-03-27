@@ -50,6 +50,18 @@ function initPhotoLightbox() {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Проверяем что все модули загружены
+  if (typeof Api === 'undefined' || typeof Points === 'undefined' ||
+      typeof Storage === 'undefined') {
+    console.error('Критическая ошибка: не все модули загружены. Проверь подключение скриптов.');
+    document.body.innerHTML = '<div style="padding:32px;text-align:center;font-family:sans-serif">' +
+      '<h2 style="color:#ea4335">Ошибка загрузки</h2>' +
+      '<p>Не удалось загрузить компоненты сайта.<br>Обнови страницу (F5).</p>' +
+      '<button onclick="location.reload()" style="margin-top:16px;padding:10px 24px;' +
+      'background:#1a73e8;color:#fff;border:none;border-radius:8px;font-size:15px;cursor:pointer">🔄 Обновить</button>' +
+      '</div>';
+    return;
+  }
   showLoader('Загрузка...');
 
   // Конфигурация
@@ -134,8 +146,10 @@ function switchTab(name) {
 
 // ── Лоадер ───────────────────────────────────────────────
 function showLoader(msg) {
-  var el = document.getElementById('loader');
-  if (el) { el.textContent = msg || '⏳'; el.style.display = 'flex'; }
+  var el   = document.getElementById('loader');
+  var txt  = document.getElementById('loader-text');
+  if (txt) txt.textContent = msg || 'Загрузка...';
+  if (el)  el.style.display = 'flex';
 }
 function hideLoader() {
   var el = document.getElementById('loader');
@@ -157,6 +171,10 @@ function renderPointsList() {
     var pending     = p.syncStatus !== 'synced';
     var statusColors = (typeof MapModule !== 'undefined') ? MapModule.STATUS_COLORS : {};
     var statusColor  = statusColors[p.status] || '#aaa';
+    var statusClass  = p.status === 'Новая' ? 'badge-new' :
+                       p.status === 'Активная' ? 'badge-active' :
+                       p.status === 'Иссякает' ? 'badge-fading' :
+                       p.status === 'Пересохла' ? 'badge-dry' : '';
     var hasPhoto     = p.photoUrls && p.photoUrls[0];
 
     html += '<div class="point-card' + (pending ? ' point-pending' : '') + '">';
@@ -164,7 +182,7 @@ function renderPointsList() {
     // Заголовок
     html += '<div class="point-card__header">';
     html += '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>';
-    html += '<span class="point-card__status" style="background:' + statusColor + '">' + (p.status || '') + '</span>';
+    html += '<span class="badge ' + statusClass + '">' + (p.status || '') + '</span>';
     if (pending) html += '<span class="sync-badge">⏳</span>';
     html += '</div>';
 
@@ -206,6 +224,10 @@ function renderPointsList() {
     html += '</div></div>';
   }
   container.innerHTML = html;
+
+  // Счётчик точек
+  var countEl = document.getElementById('points-count-badge');
+  if (countEl) countEl.textContent = points.length + ' точек';
 
   container.querySelectorAll('.btn-edit').forEach(function(btn) {
     btn.addEventListener('click', function() { openEditModal(this.dataset.pid); });
