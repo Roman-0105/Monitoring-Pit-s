@@ -659,8 +659,11 @@ function redrawMap() {
   ctx.translate(_mapOffX, _mapOffY);
   ctx.scale(_mapScale, _mapScale);
   ctx.drawImage(_mapSchemeImg, 0, 0);
+  // Домены — под точками
+  if (typeof Domens !== 'undefined') {
+    Domens.draw(ctx, _mapSchemeImg.width, _mapSchemeImg.height);
+  }
   if (typeof MapModule !== 'undefined') {
-    // Рисуем точки с учётом масштаба
     MapModule.drawPoints(ctx, Points.getList(), _mapSchemeImg.width, _mapSchemeImg.height);
   }
   ctx.restore();
@@ -854,15 +857,34 @@ function initMapInteraction(canvas) {
 
 
 function initMapLegend() {
+  // Кнопка легенды
   var btn = document.getElementById('btn-legend-toggle');
-  if (!btn || btn._bound) return;
-  btn._bound = true;
-  btn.addEventListener('click', function() {
-    var panel = document.getElementById('map-legend-panel');
-    if (!panel) return;
-    var collapsed = panel.classList.toggle('collapsed');
-    btn.textContent = collapsed ? '+' : '−';
-  });
+  if (btn && !btn._bound) {
+    btn._bound = true;
+    btn.addEventListener('click', function() {
+      var panel = document.getElementById('map-legend-panel');
+      if (!panel) return;
+      var collapsed = panel.classList.toggle('collapsed');
+      btn.textContent = collapsed ? '+' : '−';
+    });
+  }
+  // Кнопка доменов
+  var dBtn = document.getElementById('btn-domens-toggle');
+  if (dBtn && !dBtn._bound) {
+    dBtn._bound = true;
+    dBtn.addEventListener('click', function() {
+      if (typeof Domens === 'undefined') return;
+      var visible = Domens.toggle();
+      dBtn.style.background  = visible ? 'var(--blue)' : '';
+      dBtn.style.color       = visible ? '#fff'        : '';
+      dBtn.style.borderColor = visible ? 'var(--blue)' : '';
+      if (_mapSchemeImg) redrawMap();
+    });
+    // По умолчанию домены включены — подсвечиваем кнопку
+    dBtn.style.background  = 'var(--blue)';
+    dBtn.style.color       = '#fff';
+    dBtn.style.borderColor = 'var(--blue)';
+  }
 }
 
 function updateMapLegendPoints() {
@@ -874,11 +896,22 @@ function updateMapLegendPoints() {
     var s = p.status || 'Неизвестно';
     byStatus[s] = (byStatus[s] || 0) + 1;
   });
-  var html = '';
+  var html = 'Всего точек: <b>' + points.length + '</b><br><br>';
   Object.keys(byStatus).forEach(function(s) {
     html += s + ': ' + byStatus[s] + '<br>';
   });
-  html += '<br>Всего: ' + points.length;
+  // Добавляем счётчики по доменам
+  if (typeof Domens !== 'undefined') {
+    html += '<br><b>По доменам:</b><br>';
+    var byDomen = {};
+    points.forEach(function(p) {
+      var d = p.domain || '—';
+      byDomen[d] = (byDomen[d] || 0) + 1;
+    });
+    Object.keys(byDomen).sort().forEach(function(d) {
+      html += d + ': ' + byDomen[d] + '<br>';
+    });
+  }
   container.innerHTML = html;
 }
 
@@ -958,10 +991,17 @@ function openAddPointModal(xLocal, yLocal) {
   if (hint)   hint.style.display = 'none';
 
   AppState.editingPointId = null;
-  ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-domain','e-comment']
+  ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-comment']
     .forEach(function(id) { setField(id, ''); });
   setField('e-status', 'Новая');
   updateWorkerSelects();
+  // Автоопределяем домен по координатам клика
+  if (typeof Domens !== 'undefined') {
+    var autoDomen = Domens.findDomenAt(xLocal, yLocal);
+    setField('e-domain', autoDomen || '');
+  } else {
+    setField('e-domain', '');
+  }
 
   // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
   //   xLocal = 45850..47350 (горизонталь, растёт слева направо) → поле X
