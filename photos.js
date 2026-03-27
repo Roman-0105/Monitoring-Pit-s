@@ -78,14 +78,26 @@ var Photos = (function() {
 
   // ── Отображение через прокси ─────────────────────────────
 
+  // Кэш превью: url → dataUrl (живёт в памяти сессии)
+  var _cache = {};
+
   function loadForDisplay(driveUrl) {
     if (!driveUrl) return Promise.resolve(null);
+    // Возвращаем из кэша без повторной загрузки
+    if (_cache[driveUrl]) return Promise.resolve(_cache[driveUrl]);
     var match = driveUrl.match(/id=([^&]+)/);
     if (!match) return Promise.resolve(driveUrl);
     return Api.getImage(match[1]).then(function(data) {
       if (!data || !data.base64) return null;
-      return 'data:' + data.mimeType + ';base64,' + data.base64;
+      var dataUrl = 'data:' + data.mimeType + ';base64,' + data.base64;
+      _cache[driveUrl] = dataUrl;  // сохраняем в кэш
+      return dataUrl;
     }).catch(function() { return null; });
+  }
+
+  function clearCache(driveUrl) {
+    if (driveUrl) delete _cache[driveUrl];
+    else _cache = {};
   }
 
   function setImageSrc(imgEl, driveUrl) {
@@ -141,5 +153,6 @@ var Photos = (function() {
     initPhotoInput: initPhotoInput,
     clearInput:     clearInput,
     getFile:        getFile,
+    clearCache:     clearCache,
   };
 })();

@@ -57,12 +57,12 @@
         <label class="form-label">Локальные координаты (СК-42)</label>
         <div class="form-row">
           <div style="position:relative;flex:1">
-            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px;z-index:1">X</label>
-            <input class="form-input" id="f-xlocal" type="text" inputmode="decimal" placeholder="X" style="padding-top:16px">
+            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px;z-index:1">Y</label>
+            <input class="form-input" id="f-xlocal" type="text" inputmode="decimal" placeholder="Y" style="padding-top:16px">
           </div>
           <div style="position:relative;flex:1">
-            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px;z-index:1">Y</label>
-            <input class="form-input" id="f-ylocal" type="text" inputmode="decimal" placeholder="Y" style="padding-top:16px">
+            <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px;z-index:1">X</label>
+            <input class="form-input" id="f-ylocal" type="text" inputmode="decimal" placeholder="X" style="padding-top:16px">
           </div>
         </div>
         <p class="form-hint" id="f-map-coord-info"></p>
@@ -166,6 +166,7 @@
         Нажмите на карту чтобы поставить точку
       </span>
     </div>
+    <div class="map-container">
     <div id="map-scheme-wrap" class="map-scheme-wrap">
       <div id="map-no-scheme" class="map-no-scheme">
         <p>Схема не загружена</p>
@@ -173,6 +174,34 @@
       </div>
       <canvas id="map-canvas"></canvas>
     </div>
+    <!-- Боковая панель легенды -->
+    <div id="map-legend-panel" class="map-legend-panel">
+      <div class="map-legend-header">
+        <span class="map-legend-title">Легенда</span>
+        <button class="map-legend-toggle" id="btn-legend-toggle" title="Свернуть/развернуть">−</button>
+      </div>
+      <div id="map-legend-body" class="map-legend-body">
+        <div class="map-legend-item">
+          <span class="map-legend-dot" style="background:#1a73e8"></span>
+          <span>Новая</span>
+        </div>
+        <div class="map-legend-item">
+          <span class="map-legend-dot" style="background:#34a853"></span>
+          <span>Активная</span>
+        </div>
+        <div class="map-legend-item">
+          <span class="map-legend-dot" style="background:#f9ab00"></span>
+          <span>Иссякает</span>
+        </div>
+        <div class="map-legend-item">
+          <span class="map-legend-dot" style="background:#ea4335"></span>
+          <span>Пересохла</span>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--gray-200);margin:8px 0">
+        <div id="map-legend-points" style="font-size:11px;color:var(--gray-600)"></div>
+      </div>
+    </div>
+  </div><!-- map-container -->
     <div class="map-legend">
     <span id="map-week-label" style="font-weight:600;margin-right:8px"></span>
     <span class="map-legend-item"><span class="map-legend-dot" style="background:#1a73e8"></span>Новая</span>
@@ -278,12 +307,12 @@
           <label class="form-label">Локальные координаты (СК-42)</label>
           <div class="form-row">
             <div style="position:relative;flex:1">
-              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">X</label>
-              <input class="form-input" id="e-xlocal" type="text" inputmode="decimal" placeholder="X локальный" style="padding-top:16px">
+              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">Y</label>
+              <input class="form-input" id="e-xlocal" type="text" inputmode="decimal" placeholder="Y локальный" style="padding-top:16px">
             </div>
             <div style="position:relative;flex:1">
-              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">Y</label>
-              <input class="form-input" id="e-ylocal" type="text" inputmode="decimal" placeholder="Y локальный" style="padding-top:16px">
+              <label style="font-size:10px;color:var(--gray-600);position:absolute;top:3px;left:10px">X</label>
+              <input class="form-input" id="e-ylocal" type="text" inputmode="decimal" placeholder="X локальный" style="padding-top:16px">
             </div>
           </div>
           <p class="form-hint" id="e-map-coord-info"></p>
