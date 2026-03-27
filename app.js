@@ -14,6 +14,8 @@ var AppState = {
   syncing:        false,  // блокировка параллельных синхронизаций
 };
 
+var MAP_STYLE_STORAGE_KEY = 'gm_map_style_cfg';
+
 // ── Инициализация ─────────────────────────────────────────
 // ── Lightbox для фото ────────────────────────────────────
 function initPhotoLightbox() {
@@ -70,6 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var suEl  = document.getElementById('script-url-status');
   if (suEl)  suEl.textContent  = (APP_CONFIG.SCRIPT_URL && APP_CONFIG.SCRIPT_URL.indexOf('ВСТАВЬ') < 0) ? '✅ задан' : '❌ не задан';
 
+  loadMapStyleSettings();
   initTabs();
   initPhotoLightbox();
   initAddForm();
@@ -149,7 +152,7 @@ function switchTab(name) {
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
   if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
-  if (name === 'settings') renderSettingsSchemes();
+  if (name === 'settings') renderSettingsColors();
   if (name === 'workers') renderWorkerManageList();
   if (name === 'stats') renderStatsPage();
 }
@@ -886,6 +889,7 @@ var _mapDragStartX = 0;
 var _mapDragStartY = 0;
 var _mapFilters = { week: 'all', worker: 'all' };
 var _statsFilters = { week: 'all', worker: 'all' };
+var _mapUiState = { showFilter: true, showLegend: true };
 
 function renderMap() {
   var canvas   = document.getElementById('map-canvas');
@@ -919,9 +923,11 @@ function renderMap() {
       var wrap = document.getElementById('map-scheme-wrap');
       if (wrap) {
         var fitScale = Math.min(wrap.clientWidth / img.width, wrap.clientHeight / img.height);
-        _mapScale = fitScale > 0 ? fitScale : 1;
+        var lim = getMapZoomLimits();
+        _mapScale = Math.max(lim.min, Math.min(lim.max, fitScale > 0 ? fitScale : 1));
       } else {
-        _mapScale = 1;
+        var lim2 = getMapZoomLimits();
+        _mapScale = Math.max(lim2.min, Math.min(lim2.max, 1));
       }
       _mapOffX = 0;
       _mapOffY = 0;
@@ -1029,9 +1035,34 @@ function setupMapCanvas(canvas) {
   canvas.height = wrap.clientHeight || 600;
 }
 
+function getMapZoomLimits() {
+  if (typeof MapModule === 'undefined' || !MapModule.getStyleConfig) return { min: 0.3, max: 6 };
+  var cfg = MapModule.getStyleConfig();
+  var z = cfg.zoom || {};
+  return { min: z.min || 0.3, max: z.max || 6 };
+}
+
+function clampMapTransform() {
+  var canvas = document.getElementById('map-canvas');
+  if (!canvas || !_mapSchemeImg) return;
+  var minX = canvas.width - (_mapSchemeImg.width * _mapScale);
+  var minY = canvas.height - (_mapSchemeImg.height * _mapScale);
+  if (_mapSchemeImg.width * _mapScale <= canvas.width) {
+    _mapOffX = (canvas.width - _mapSchemeImg.width * _mapScale) / 2;
+  } else {
+    _mapOffX = Math.min(0, Math.max(minX, _mapOffX));
+  }
+  if (_mapSchemeImg.height * _mapScale <= canvas.height) {
+    _mapOffY = (canvas.height - _mapSchemeImg.height * _mapScale) / 2;
+  } else {
+    _mapOffY = Math.min(0, Math.max(minY, _mapOffY));
+  }
+}
+
 function redrawMap() {
   var canvas = document.getElementById('map-canvas');
   if (!canvas || !_mapSchemeImg) return;
+  clampMapTransform();
   var ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#ffffff';
@@ -1064,7 +1095,8 @@ function initMapInteraction(canvas) {
     var mouseX = e.clientX - rect.left;
     var mouseY = e.clientY - rect.top;
     var delta  = e.deltaY > 0 ? 0.85 : 1.18;
-    var newScale = Math.max(0.2, Math.min(10, _mapScale * delta));
+    var limits = getMapZoomLimits();
+    var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * delta));
     // Зум относительно точки курсора
     _mapOffX = mouseX - (mouseX - _mapOffX) * (newScale / _mapScale);
     _mapOffY = mouseY - (mouseY - _mapOffY) * (newScale / _mapScale);
@@ -1102,7 +1134,8 @@ function initMapInteraction(canvas) {
         var rect     = canvas.getBoundingClientRect();
         var mx       = midX - rect.left;
         var my       = midY - rect.top;
-        var newScale = Math.max(0.2, Math.min(10, _mapScale * ratio));
+    var limits = getMapZoomLimits();
+    var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * ratio));
         _mapOffX = mx - (mx - _mapOffX) * (newScale / _mapScale);
         _mapOffY = my - (my - _mapOffY) * (newScale / _mapScale);
         _mapScale = newScale;
@@ -1282,7 +1315,52 @@ function initMapLegend() {
       });
     });
   }
+
+  var filterBtn = document.getElementById('btn-map-filter-toggle');
+  if (filterBtn && !filterBtn._bound) {
+    filterBtn._bound = true;
+    filterBtn.addEventListener('click', function() {
+      _mapUiState.showFilter = !_mapUiState.showFilter;
+      applyMapSectionVisibility();
+    });
+  }
+  var legendBtn = document.getElementById('btn-map-legend-section-toggle');
+  if (legendBtn && !legendBtn._bound) {
+    legendBtn._bound = true;
+    legendBtn.addEventListener('click', function() {
+      _mapUiState.showLegend = !_mapUiState.showLegend;
+      applyMapSectionVisibility();
+    });
+  }
   renderMapModeLegend();
+  applyMapSectionVisibility();
+}
+
+function applyMapSectionVisibility() {
+  var filterParts = ['map-filter-week-section', 'map-filter-worker-section'];
+  filterParts.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = _mapUiState.showFilter ? '' : 'none';
+  });
+  var modeSection = document.getElementById('map-mode-section');
+  if (modeSection) modeSection.style.display = _mapUiState.showLegend ? '' : 'none';
+  var legendSection = document.getElementById('map-legend-section');
+  if (legendSection) legendSection.style.display = _mapUiState.showLegend ? '' : 'none';
+  var legendPoints = document.getElementById('map-legend-points');
+  if (legendPoints) legendPoints.style.display = _mapUiState.showLegend ? '' : 'none';
+
+  var filterBtn = document.getElementById('btn-map-filter-toggle');
+  if (filterBtn) {
+    filterBtn.style.background = _mapUiState.showFilter ? 'var(--blue)' : '';
+    filterBtn.style.color = _mapUiState.showFilter ? '#fff' : '';
+    filterBtn.style.borderColor = _mapUiState.showFilter ? 'var(--blue)' : '';
+  }
+  var legendBtn = document.getElementById('btn-map-legend-section-toggle');
+  if (legendBtn) {
+    legendBtn.style.background = _mapUiState.showLegend ? 'var(--blue)' : '';
+    legendBtn.style.color = _mapUiState.showLegend ? '#fff' : '';
+    legendBtn.style.borderColor = _mapUiState.showLegend ? 'var(--blue)' : '';
+  }
 }
 
 function renderMapModeLegend() {
@@ -1361,6 +1439,13 @@ function updateMapLegendPoints() {
     }
   });
   html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1404,7 +1489,8 @@ function zoomMap(factor) {
   if (!canvas) return;
   var cx = canvas.width  / 2;
   var cy = canvas.height / 2;
-  var newScale = Math.max(0.2, Math.min(10, _mapScale * factor));
+  var limits = getMapZoomLimits();
+  var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * factor));
   _mapOffX = cx - (cx - _mapOffX) * (newScale / _mapScale);
   _mapOffY = cy - (cy - _mapOffY) * (newScale / _mapScale);
   _mapScale = newScale;
@@ -1416,7 +1502,8 @@ function fitMap() {
   var canvas = document.getElementById('map-canvas');
   if (!canvas) return;
   var fitScale = Math.min(canvas.width / _mapSchemeImg.width, canvas.height / _mapSchemeImg.height);
-  _mapScale = fitScale > 0 ? fitScale : 1;
+  var lim = getMapZoomLimits();
+  _mapScale = Math.max(lim.min, Math.min(lim.max, fitScale > 0 ? fitScale : 1));
   _mapOffX  = (canvas.width  - _mapSchemeImg.width  * _mapScale) / 2;
   _mapOffY  = (canvas.height - _mapSchemeImg.height * _mapScale) / 2;
   redrawMap();
@@ -1628,88 +1715,76 @@ function showMapPointCard(p) {
 
 // ── Настройки — схемы ────────────────────────────────────
 function initSettings() {
-  // Показываем текущую неделю
-  var weekEl = document.getElementById('settings-week-key');
-  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
+  renderSettingsColors();
+}
 
-  // Превью файла
-  var fileInput = document.getElementById('scheme-file');
-  if (fileInput) {
-    fileInput.addEventListener('change', function() {
-      var file = fileInput.files && fileInput.files[0];
-      var preview = document.getElementById('scheme-preview');
-      if (!preview) return;
-      if (!file) { preview.innerHTML = ''; return; }
-      var url = URL.createObjectURL(file);
-      var img = document.createElement('img');
-      img.src = url;
-      img.onload = function() { URL.revokeObjectURL(url); };
-      preview.innerHTML = '';
-      preview.appendChild(img);
+function renderSettingsColors() {
+  if (typeof MapModule === 'undefined') return;
+  var cfg = MapModule.getStyleConfig();
+  function bindColor(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = val || '#888888';
+  }
+  bindColor('set-status-new', cfg.statusColors['Новая']);
+  bindColor('set-status-active', cfg.statusColors['Активная']);
+  bindColor('set-status-fading', cfg.statusColors['Иссякает']);
+  bindColor('set-status-dry', cfg.statusColors['Пересохла']);
+  bindColor('set-intensity-color', cfg.intensityColor);
+  bindColor('set-domain-1', cfg.domainColors['Domen-1']);
+  bindColor('set-domain-2', cfg.domainColors['Domen-2']);
+  bindColor('set-domain-3', cfg.domainColors['Domen-3']);
+  bindColor('set-domain-4', cfg.domainColors['Domen-4']);
+  bindColor('set-domain-5', cfg.domainColors['Domen-5']);
+
+  var btn = document.getElementById('btn-save-map-colors');
+  if (btn && !btn._bound) {
+    btn._bound = true;
+    btn.addEventListener('click', function() {
+      var nextCfg = {
+        statusColors: {
+          'Новая': getField('set-status-new'),
+          'Активная': getField('set-status-active'),
+          'Иссякает': getField('set-status-fading'),
+          'Искакает': getField('set-status-fading'),
+          'Пересохла': getField('set-status-dry'),
+        },
+        intensityColor: getField('set-intensity-color'),
+        simpleColor: getField('set-intensity-color'),
+        combinedBaseColor: getField('set-intensity-color'),
+        domainColors: {
+          'Domen-1': getField('set-domain-1'),
+          'Domen-2': getField('set-domain-2'),
+          'Domen-3': getField('set-domain-3'),
+          'Domen-4': getField('set-domain-4'),
+          'Domen-5': getField('set-domain-5'),
+        },
+      };
+      MapModule.setStyleConfig(nextCfg);
+      if (typeof Domens !== 'undefined' && Domens.setColors) {
+        Domens.setColors(nextCfg.domainColors);
+      }
+      localStorage.setItem(MAP_STYLE_STORAGE_KEY, JSON.stringify(nextCfg));
+      renderMapModeLegend();
+      updateMapLegendPoints();
+      if (_mapSchemeImg) redrawMap();
+      var msg = document.getElementById('map-color-save-msg');
+      if (msg) msg.textContent = '✅ Цвета сохранены';
     });
   }
-
-  // Кнопка загрузки
-  var uploadBtn = document.getElementById('btn-upload-scheme');
-  if (uploadBtn) {
-    uploadBtn.addEventListener('click', uploadScheme);
-  }
 }
 
-function renderSettingsSchemes() {
-  var weekEl = document.getElementById('settings-week-key');
-  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
-
-  var container = document.getElementById('settings-schemes-list');
-  if (!container) return;
-  var schemes = Schemes.getList();
-  var current = Schemes.currentWeekKey();
-
-  if (!schemes.length) {
-    container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
-    return;
+function loadMapStyleSettings() {
+  try {
+    var raw = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
+    if (!raw || typeof MapModule === 'undefined') return;
+    var cfg = JSON.parse(raw);
+    MapModule.setStyleConfig(cfg);
+    if (typeof Domens !== 'undefined' && Domens.setColors && cfg.domainColors) {
+      Domens.setColors(cfg.domainColors);
+    }
+  } catch(e) {
+    console.warn('Не удалось загрузить настройки цветов карты:', e);
   }
-
-  var html = '';
-  for (var i = 0; i < schemes.length; i++) {
-    var s = schemes[i];
-    var isCurrent = s.weekKey === current;
-    html += '<div class="scheme-item">';
-    html += '<div>';
-    html += '<div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
-    var uploadDate = (s.uploadedAt && s.uploadedAt !== 'undefined') ? formatDate(s.uploadedAt) : '—';
-    html += '<div class="scheme-item__date">' + uploadDate + '</div>';
-    html += '</div>';
-    if (isCurrent) html += '<span class="scheme-item__current">✅ Текущая</span>';
-    html += '</div>';
-  }
-  container.innerHTML = html;
-}
-
-function uploadScheme() {
-  var fileInput = document.getElementById('scheme-file');
-  var statusEl  = document.getElementById('scheme-upload-status');
-  var file = fileInput && fileInput.files && fileInput.files[0];
-  if (!file) { alert('Выберите файл схемы'); return; }
-
-  var weekKey   = Schemes.currentWeekKey();
-  var uploadBtn = document.getElementById('btn-upload-scheme');
-  if (statusEl)  statusEl.textContent = '⏳ Загрузка... (~15-30 сек)';
-  if (uploadBtn) uploadBtn.disabled = true;
-  AppState.syncing = true;
-
-  Schemes.upload(file, weekKey, Storage.getDeviceId()).then(function() {
-    if (statusEl) statusEl.textContent = '✅ Схема загружена — ' + Schemes.formatWeekKey(weekKey);
-    var preview = document.getElementById('scheme-preview');
-    if (preview) preview.innerHTML = '';
-    if (fileInput) fileInput.value = '';
-    renderSettingsSchemes();
-  }).catch(function(err) {
-    if (statusEl) statusEl.textContent = '❌ ' + err.message;
-  }).then(function() {
-    if (uploadBtn) uploadBtn.disabled = false;
-    AppState.syncing = false;
-  });
 }
 
 // ── GPS для формы ────────────────────────────────────────

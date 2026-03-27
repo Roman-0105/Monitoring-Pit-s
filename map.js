@@ -30,12 +30,16 @@ var MapModule = (function() {
   };
 
   var MAP_STYLE = {
+    markerFill: '#ff8c00',
+    markerStroke: '#111111',
     minMarkerSize: 4,
-    maxMarkerSize: 11,
+    maxMarkerSize: 16,
     baseHitPadding: 4,
-    simpleColor: '#7f1d1d',
-    intensityColor: '#b8c0cf',
-    combinedBaseColor: '#e7edf7',
+    simpleColor: '#ff8c00',
+    intensityColor: '#ff8c00',
+    combinedBaseColor: '#ff8c00',
+    zoom: { min: 0.35, max: 6 },
+    labels: { showFromScale: 0.85 },
     statusColors: {
       'Новая':     '#1a73e8',
       'Активная':  '#34a853',
@@ -45,9 +49,9 @@ var MapModule = (function() {
     },
     intensitySizes: {
       'Слабая (капёж)': 4.5,
-      'Умеренная': 6,
-      'Сильная (поток)': 7.5,
-      'Очень сильная': 9,
+      'Умеренная': 7,
+      'Сильная (поток)': 10.5,
+      'Очень сильная': 14,
     },
     domainColors: {
       'Domen-1': '#1a73e8',
@@ -96,15 +100,16 @@ var MapModule = (function() {
     if (_styleCache[key]) return _styleCache[key];
 
     var style = {
-      size: getScaleAwareSize(6, scaleBucket),
+      size: getScaleAwareSize(7, scaleBucket),
       color: MAP_STYLE.simpleColor,
+      stroke: MAP_STYLE.markerStroke,
       badgeColor: null,
       showBadge: false,
     };
 
     if (effectiveMode === 'status') {
       style.color = STATUS_COLORS[status] || '#666';
-      style.size = getScaleAwareSize(6, scaleBucket);
+      style.size = getScaleAwareSize(7, scaleBucket);
     } else if (effectiveMode === 'intensity') {
       style.color = MAP_STYLE.intensityColor;
       style.size = getScreenRadius(intensity, scaleBucket);
@@ -125,14 +130,26 @@ var MapModule = (function() {
   function getMarkerMode() { return MARKER_MODE; }
   function resetMarkerStyleCache() { _styleCache = {}; }
 
+  function setStyleConfig(nextCfg) {
+    if (!nextCfg) return;
+    function merge(dst, src) {
+      Object.keys(src).forEach(function(k) {
+        if (src[k] && typeof src[k] === 'object' && !Array.isArray(src[k])) {
+          if (!dst[k] || typeof dst[k] !== 'object') dst[k] = {};
+          merge(dst[k], src[k]);
+        } else if (src[k] != null) {
+          dst[k] = src[k];
+        }
+      });
+      return dst;
+    }
+    merge(MAP_STYLE, nextCfg);
+    STATUS_COLORS = MAP_STYLE.statusColors;
+    resetMarkerStyleCache();
+  }
+
   function getStyleConfig() {
-    return {
-      statusColors: MAP_STYLE.statusColors,
-      intensitySizes: MAP_STYLE.intensitySizes,
-      domainColors: MAP_STYLE.domainColors,
-      simpleColor: MAP_STYLE.simpleColor,
-      intensityColor: MAP_STYLE.intensityColor,
-    };
+    return JSON.parse(JSON.stringify(MAP_STYLE));
   }
 
   // ── Пиксели → X/Y ────────────────────────────────────────
@@ -241,13 +258,9 @@ var MapModule = (function() {
       ctx.fill();
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur  = 0;
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth   = 1.5;
+      ctx.strokeStyle = marker.stroke || MAP_STYLE.markerStroke;
+      ctx.lineWidth   = 1.8;
       ctx.stroke();
-      ctx.fillStyle    = '#fff';
-      ctx.font         = 'bold 9px sans-serif';
-      ctx.textAlign    = 'center';
-      ctx.textBaseline = 'middle';
       if (marker.showBadge) {
         var br = Math.max(3, Math.min(6, radius * 0.45));
         var bx = pos.px + radius * 0.55;
@@ -260,9 +273,17 @@ var MapModule = (function() {
         ctx.strokeStyle = '#ffffff';
         ctx.stroke();
       }
-      // для компактных маркеров не рисуем номер внутри — меньше шума
-      if (radius >= 6.5 && MARKER_MODE !== 'combined') {
-        ctx.fillText(String(p.pointNumber || '?'), pos.px, pos.py);
+      var scale = normalizeScale(viewScale);
+      if (scale >= (MAP_STYLE.labels.showFromScale || 1)) {
+        var fs = clamp(11 / scale, 7, 14);
+        ctx.fillStyle = '#0b0f14';
+        ctx.font = '700 ' + fs.toFixed(1) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        var labelText = String(p.pointNumber || '?');
+        ctx.fillText(labelText, pos.px + (radius / 3), pos.py - radius - (2 / scale));
+        ctx.fillStyle = '#f6f7fb';
+        ctx.fillText(labelText, pos.px, pos.py - radius - (3 / scale));
       }
     }
   }
@@ -300,6 +321,7 @@ var MapModule = (function() {
     setMarkerMode: setMarkerMode,
     getMarkerMode: getMarkerMode,
     resetMarkerStyleCache: resetMarkerStyleCache,
+    setStyleConfig: setStyleConfig,
     getStyleConfig: getStyleConfig,
   };
 })();

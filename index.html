@@ -177,6 +177,12 @@
       <button class="btn btn-sm btn-outline" id="btn-domens-toggle" title="Показать/скрыть домены" style="margin-left:4px">
         🗺 Домены
       </button>
+      <button class="btn btn-sm btn-outline" id="btn-map-filter-toggle" title="Показать/скрыть фильтры" style="margin-left:4px">
+        🎛 Фильтр
+      </button>
+      <button class="btn btn-sm btn-outline" id="btn-map-legend-section-toggle" title="Показать/скрыть легенду" style="margin-left:4px">
+        📑 Легенда
+      </button>
       <span id="map-add-hint" class="map-add-hint" style="display:none">
         Нажмите на карту чтобы поставить точку
       </span>
@@ -196,15 +202,15 @@
         <button class="map-legend-toggle" id="btn-legend-toggle" title="Свернуть/развернуть">−</button>
       </div>
       <div id="map-legend-body" class="map-legend-body">
-        <div class="map-filter-group">
+        <div class="map-filter-group" id="map-filter-week-section">
           <label class="form-label" for="map-filter-week">Неделя</label>
           <select id="map-filter-week" class="filter-select filter-select--full"></select>
         </div>
-        <div class="map-filter-group">
+        <div class="map-filter-group" id="map-filter-worker-section">
           <label class="form-label" for="map-filter-worker">Сотрудник</label>
           <select id="map-filter-worker" class="filter-select filter-select--full"></select>
         </div>
-        <div class="map-filter-group">
+        <div class="map-filter-group" id="map-mode-section">
           <label class="form-label">Отображение точек</label>
           <div id="map-mode-switch" class="map-mode-switch">
             <label><input type="radio" name="map-marker-mode" value="simple"> Simple</label>
@@ -213,8 +219,10 @@
             <label><input type="radio" name="map-marker-mode" value="combined" checked> Combined</label>
           </div>
         </div>
-        <hr style="border:none;border-top:1px solid var(--line-2);margin:10px 0">
-        <div id="map-mode-legend"></div>
+        <div id="map-legend-section">
+          <hr style="border:none;border-top:1px solid var(--line-2);margin:10px 0">
+          <div id="map-mode-legend"></div>
+        </div>
         <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
         <div id="map-legend-points" style="font-size:11px;color:var(--txt-3)"></div>
       </div>
@@ -225,30 +233,48 @@
   <!-- Настройки -->
   <div class="page" id="page-settings">
     <div class="card">
-      <div class="card-title">Схема карьера</div>
-      <p class="form-hint" style="margin-bottom:12px">
-        Загружай PNG схему карьера. Схема привязана к текущей неделе
-        и автоматически появится у всех пользователей.
-      </p>
-      <div class="form-group">
-        <label class="form-label">Текущая неделя</label>
-        <div id="settings-week-key" class="settings-week-label">—</div>
+      <div class="card-title">Настройки цветов карты</div>
+      <p class="form-hint" style="margin-bottom:12px">Здесь настраиваются только цвета статусов, интенсивности и доменов.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="set-status-new">Статус: Новая</label>
+          <input class="form-input" type="color" id="set-status-new">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-status-active">Статус: Активная</label>
+          <input class="form-input" type="color" id="set-status-active">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="set-status-fading">Статус: Иссякает</label>
+          <input class="form-input" type="color" id="set-status-fading">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="set-status-dry">Статус: Пересохла</label>
+          <input class="form-input" type="color" id="set-status-dry">
+        </div>
       </div>
       <div class="form-group">
-        <label class="form-label">Загруженные схемы</label>
-        <div id="settings-schemes-list" class="settings-schemes-list">Загрузка...</div>
+        <label class="form-label" for="set-intensity-color">Цвет маркера (режим INTENSITY)</label>
+        <input class="form-input" type="color" id="set-intensity-color">
+      </div>
+      <button class="btn btn-primary" id="btn-save-map-colors">Сохранить цвета</button>
+      <p class="form-hint" id="map-color-save-msg"></p>
+    </div>
+    <div class="card">
+      <div class="card-title">Цвета доменов</div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="set-domain-1">Domen-1</label><input class="form-input" type="color" id="set-domain-1"></div>
+        <div class="form-group"><label class="form-label" for="set-domain-2">Domen-2</label><input class="form-input" type="color" id="set-domain-2"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label" for="set-domain-3">Domen-3</label><input class="form-input" type="color" id="set-domain-3"></div>
+        <div class="form-group"><label class="form-label" for="set-domain-4">Domen-4</label><input class="form-input" type="color" id="set-domain-4"></div>
       </div>
       <div class="form-group">
-        <label class="form-label">Загрузить новую схему</label>
-        <div id="scheme-preview"></div>
-        <label class="photo-pick-btn" for="scheme-file">
-          🗺 Выбрать PNG файл
-          <input type="file" id="scheme-file" accept="image/png,image/jpeg" style="display:none">
-        </label>
-        <button class="btn btn-primary btn-full" id="btn-upload-scheme" style="margin-top:10px">
-          ⬆️ Загрузить схему
-        </button>
-        <p class="form-hint" id="scheme-upload-status"></p>
+        <label class="form-label" for="set-domain-5">Domen-5</label>
+        <input class="form-input" type="color" id="set-domain-5">
       </div>
     </div>
   </div>
