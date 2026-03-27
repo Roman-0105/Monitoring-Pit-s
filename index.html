@@ -92,6 +92,7 @@
         <div class="form-group">
           <label class="form-label" for="f-flowrate">Дебит, л/с</label>
           <input class="form-input" id="f-flowrate" type="number" step="any" min="0">
+          <p class="form-hint" id="f-flowrate-m3h">—</p>
         </div>
       </div>
       <div class="form-row">
@@ -219,6 +220,26 @@
         <div class="map-legend-item">
           <span class="map-legend-dot" style="background:#ea4335"></span>
           <span>Пересохла</span>
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
+        <div class="map-legend-subtitle">Интенсивность (размер маркера)</div>
+        <div class="map-legend-intensity">
+          <div class="map-legend-item">
+            <span class="map-legend-dot map-intensity-dot i-weak"></span>
+            <span>Слабая (капёж)</span>
+          </div>
+          <div class="map-legend-item">
+            <span class="map-legend-dot map-intensity-dot i-mid"></span>
+            <span>Умеренная</span>
+          </div>
+          <div class="map-legend-item">
+            <span class="map-legend-dot map-intensity-dot i-strong"></span>
+            <span>Сильная (поток)</span>
+          </div>
+          <div class="map-legend-item">
+            <span class="map-legend-dot map-intensity-dot i-vstrong"></span>
+            <span>Очень сильная</span>
+          </div>
         </div>
         <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
         <div id="map-legend-points" style="font-size:11px;color:var(--txt-3)"></div>
@@ -385,6 +406,7 @@
           <div class="form-group">
             <label class="form-label" for="e-flowrate">Дебит, л/с</label>
             <input class="form-input" id="e-flowrate" type="number" step="any" min="0">
+            <p class="form-hint" id="e-flowrate-m3h">—</p>
           </div>
         </div>
         <div class="form-row">

@@ -263,7 +263,7 @@ function renderPointsList() {
     if (p.intensity || p.flowRate != null) {
       html += '<div class="pc-row"><span class="pc-lbl">💧</span><span>';
       if (p.intensity) html += p.intensity;
-      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + p.flowRate + ' л/с';
+      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + formatFlowBothUnits(p.flowRate);
       html += '</span></div>';
     }
     if (p.waterColor) html += '<div class="pc-row"><span class="pc-lbl">🎨</span><span>' + p.waterColor + '</span></div>';
@@ -387,12 +387,17 @@ function renderStatsPage() {
     if (p.status === 'Активная') active++;
   });
 
+  var avgFlow = withFlow ? (totalFlow / withFlow) : null;
+
   grid.innerHTML =
     '<div class="stats-kpi"><div class="stats-kpi__label">Всего точек</div><div class="stats-kpi__value">' + points.length + '</div></div>' +
     '<div class="stats-kpi"><div class="stats-kpi__label">Активные</div><div class="stats-kpi__value">' + active + '</div></div>' +
     '<div class="stats-kpi"><div class="stats-kpi__label">С фото</div><div class="stats-kpi__value">' + withPhoto + '</div></div>' +
-    '<div class="stats-kpi"><div class="stats-kpi__label">Средний дебит, л/с</div><div class="stats-kpi__value">' +
-      (withFlow ? (totalFlow / withFlow).toFixed(2) : '—') + '</div></div>';
+    '<div class="stats-kpi"><div class="stats-kpi__label">Средний водоприток</div><div class="stats-kpi__value">' +
+      (avgFlow != null ? avgFlow.toFixed(2) : '—') + ' л/с<small>' +
+      (avgFlow != null ? lpsToM3h(avgFlow).toFixed(2) : '—') + ' м³/ч</small></div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Суммарный водоприток</div><div class="stats-kpi__value">' +
+      totalFlow.toFixed(2) + ' л/с<small>' + lpsToM3h(totalFlow).toFixed(2) + ' м³/ч</small></div></div>';
 
   var byStatus = {};
   var byDomain = {};
@@ -562,12 +567,16 @@ function initAddForm() {
   var fLon = document.getElementById('f-lon');
   if (fLat) fLat.addEventListener('change', function() { recalcLocalCoords('f'); });
   if (fLon) fLon.addEventListener('change', function() { recalcLocalCoords('f'); });
+  var fFlow = document.getElementById('f-flowrate');
+  if (fFlow) fFlow.addEventListener('input', function() { updateFlowHint('f'); });
+  updateFlowHint('f');
 }
 
 function resetAddForm() {
   var form = document.getElementById('add-form');
   if (form) form.reset();
   Photos.clearInput('f-photo', 'f-photo-preview');
+  updateFlowHint('f');
 }
 
 function saveNewPoint() {
@@ -631,6 +640,8 @@ function initEditModal() {
   var eLon = document.getElementById('e-lon');
   if (eLat) eLat.addEventListener('change', function() { recalcLocalCoords('e'); });
   if (eLon) eLon.addEventListener('change', function() { recalcLocalCoords('e'); });
+  var eFlow = document.getElementById('e-flowrate');
+  if (eFlow) eFlow.addEventListener('input', function() { updateFlowHint('e'); });
 
   // Кнопка добавления точки на карте
   var addMapBtn = document.getElementById('btn-map-add-point');
@@ -656,6 +667,7 @@ function openEditModal(id) {
   }
   setField('e-intensity', p.intensity   || '');
   setField('e-flowrate',  p.flowRate != null ? p.flowRate : '');
+  updateFlowHint('e');
   setField('e-color',     p.waterColor  || '');
   setField('e-wall',      p.wall        || '');
   setField('e-domain',    p.domain      || '');
@@ -712,6 +724,17 @@ function closeEditModal() {
   // Убираем строку с местными координатами
   var coordInfo = document.getElementById('e-map-coord-info');
   if (coordInfo) coordInfo.textContent = '';
+}
+
+function updateFlowHint(prefix) {
+  var flow = parseFloatOrNull(getField(prefix + '-flowrate'));
+  var hint = document.getElementById(prefix + '-flowrate-m3h');
+  if (!hint) return;
+  if (flow == null) {
+    hint.textContent = 'Эквивалент: — м³/ч';
+    return;
+  }
+  hint.textContent = 'Эквивалент: ' + lpsToM3h(flow).toFixed(2) + ' м³/ч';
 }
 
 function saveEditedPoint() {
@@ -1022,7 +1045,7 @@ function redrawMap() {
     Domens.draw(ctx, _mapSchemeImg.width, _mapSchemeImg.height);
   }
   if (typeof MapModule !== 'undefined') {
-    MapModule.drawPoints(ctx, getFilteredPointsForMap(), _mapSchemeImg.width, _mapSchemeImg.height);
+    MapModule.drawPoints(ctx, getFilteredPointsForMap(), _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
   }
   ctx.restore();
   // Обновляем масштаб в статус-баре
@@ -1145,7 +1168,7 @@ function initMapInteraction(canvas) {
       var imgX = (cx - _mapOffX) / _mapScale;
       var imgY = (cy - _mapOffY) / _mapScale;
       var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
       } else {
@@ -1175,7 +1198,7 @@ function initMapInteraction(canvas) {
     var imgY = (cy - _mapOffY) / _mapScale;
     if (typeof MapModule !== 'undefined') {
       var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
       } else {
@@ -1206,7 +1229,7 @@ function initMapInteraction(canvas) {
 
     if (typeof MapModule !== 'undefined') {
       var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) showMapPointCard(p);
     }
   });
@@ -1250,9 +1273,12 @@ function updateMapLegendPoints() {
   if (!container) return;
   var points = getFilteredPointsForMap();
   var byStatus = {};
+  var byIntensity = {};
   points.forEach(function(p) {
     var s = p.status || 'Неизвестно';
     byStatus[s] = (byStatus[s] || 0) + 1;
+    var it = p.intensity || 'Не указана';
+    byIntensity[it] = (byIntensity[it] || 0) + 1;
   });
   var html = '<div style="margin-bottom:8px">Показано точек: <b>' + points.length + '</b></div>';
   html += '<div style="margin-bottom:8px;font-size:10px;color:var(--txt-3)">Фильтр: ' +
@@ -1261,6 +1287,13 @@ function updateMapLegendPoints() {
   html += '<div style="display:grid;gap:4px">';
   ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
     html += '<div style="display:flex;justify-content:space-between"><span>' + s + '</span><b>' + (byStatus[s] || 0) + '</b></div>';
+  });
+  html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
   });
   html += '</div>';
   // Добавляем счётчики по доменам
@@ -1356,6 +1389,7 @@ function openAddPointModal(xLocal, yLocal) {
   AppState.editingPointId = null;
   ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-comment']
     .forEach(function(id) { setField(id, ''); });
+  updateFlowHint('e');
   setField('e-status', 'Новая');
   updateWorkerSelects();
   // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
@@ -1425,7 +1459,7 @@ function showMapTooltip(p, clientX, clientY) {
     '<span style="color:' + color + ';font-size:11px">' + (p.status || '') + '</span>' +
     '</div>' +
     (p.worker    ? '<div>👤 ' + p.worker + '</div>' : '') +
-    (p.flowRate != null ? '<div>💧 ' + p.flowRate + ' л/с</div>' : '') +
+    (p.flowRate != null ? '<div>💧 ' + formatFlowBothUnits(p.flowRate) + '</div>' : '') +
     (p.intensity ? '<div>' + p.intensity + '</div>' : '') +
     '<div style="color:var(--gray-600);font-size:11px">' + formatDate(p.createdAt) + '</div>';
 
@@ -1473,7 +1507,7 @@ function showMapPointCard(p) {
   if (p.domain)     html += '<div class="mpc-row"><span class="mpc-label">Домен</span><span>' + p.domain + '</span></div>';
   if (p.wall)       html += '<div class="mpc-row"><span class="mpc-label">Борт</span><span>' + p.wall + '</span></div>';
   if (p.intensity)  html += '<div class="mpc-row"><span class="mpc-label">Интенсивность</span><span>' + p.intensity + '</span></div>';
-  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + p.flowRate + ' л/с</span></div>';
+  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + formatFlowBothUnits(p.flowRate) + '</span></div>';
   if (p.waterColor) html += '<div class="mpc-row"><span class="mpc-label">Цвет воды</span><span>' + p.waterColor + '</span></div>';
   if (p.xLocal != null) {
     html += '<div class="mpc-row"><span class="mpc-label">X / Y</span><span>' +
@@ -1682,6 +1716,17 @@ function parseFloatOrNull(v) {
   if (v == null || String(v).trim() === '') return null;
   var n = parseFloat(String(v).replace(',', '.'));
   return isNaN(n) ? null : n;
+}
+function lpsToM3h(lps) {
+  var n = parseFloat(lps);
+  if (isNaN(n)) return null;
+  return n * 3.6;
+}
+function formatFlowBothUnits(lps) {
+  var n = parseFloat(lps);
+  if (isNaN(n)) return '—';
+  var m3h = lpsToM3h(n);
+  return n.toFixed(2) + ' л/с (' + m3h.toFixed(2) + ' м³/ч)';
 }
 function initials(name) {
   return (name || '').split(' ').map(function(s) { return s[0] || ''; }).join('').slice(0, 2).toUpperCase();
