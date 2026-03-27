@@ -1360,6 +1360,7 @@ function updateMapLegendPoints() {
       html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
     }
   });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
