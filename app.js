@@ -152,7 +152,7 @@ function switchTab(name) {
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
   if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
-  if (name === 'settings') renderSettingsColors();
+  if (name === 'settings') { renderSettingsSchemes(); renderSettingsColors(); }
   if (name === 'workers') renderWorkerManageList();
   if (name === 'stats') renderStatsPage();
 }
@@ -1446,6 +1446,13 @@ function updateMapLegendPoints() {
     }
   });
   html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1715,7 +1722,31 @@ function showMapPointCard(p) {
 
 // ── Настройки — схемы ────────────────────────────────────
 function initSettings() {
+  renderSettingsSchemes();
   renderSettingsColors();
+
+  var fileInput = document.getElementById('scheme-file');
+  if (fileInput && !fileInput._bound) {
+    fileInput._bound = true;
+    fileInput.addEventListener('change', function() {
+      var file = fileInput.files && fileInput.files[0];
+      var preview = document.getElementById('scheme-preview');
+      if (!preview) return;
+      if (!file) { preview.innerHTML = ''; return; }
+      var url = URL.createObjectURL(file);
+      var img = document.createElement('img');
+      img.src = url;
+      img.onload = function() { URL.revokeObjectURL(url); };
+      preview.innerHTML = '';
+      preview.appendChild(img);
+    });
+  }
+
+  var uploadBtn = document.getElementById('btn-upload-scheme');
+  if (uploadBtn && !uploadBtn._bound) {
+    uploadBtn._bound = true;
+    uploadBtn.addEventListener('click', uploadScheme);
+  }
 }
 
 function renderSettingsColors() {
@@ -1736,11 +1767,11 @@ function renderSettingsColors() {
   bindColor('set-domain-4', cfg.domainColors['Domen-4']);
   bindColor('set-domain-5', cfg.domainColors['Domen-5']);
 
-  var btn = document.getElementById('btn-save-map-colors');
-  if (btn && !btn._bound) {
-    btn._bound = true;
-    btn.addEventListener('click', function() {
-      var nextCfg = {
+  var btnStatus = document.getElementById('btn-save-status-colors');
+  if (btnStatus && !btnStatus._bound) {
+    btnStatus._bound = true;
+    btnStatus.addEventListener('click', function() {
+      var patch = {
         statusColors: {
           'Новая': getField('set-status-new'),
           'Активная': getField('set-status-active'),
@@ -1751,6 +1782,17 @@ function renderSettingsColors() {
         intensityColor: getField('set-intensity-color'),
         simpleColor: getField('set-intensity-color'),
         combinedBaseColor: getField('set-intensity-color'),
+      };
+      applyMapStylePatch(patch);
+      var msg = document.getElementById('map-color-save-msg');
+      if (msg) msg.textContent = '✅ Цвета статусов сохранены';
+    });
+  }
+  var btnDomain = document.getElementById('btn-save-domain-colors');
+  if (btnDomain && !btnDomain._bound) {
+    btnDomain._bound = true;
+    btnDomain.addEventListener('click', function() {
+      var patch = {
         domainColors: {
           'Domen-1': getField('set-domain-1'),
           'Domen-2': getField('set-domain-2'),
@@ -1759,18 +1801,100 @@ function renderSettingsColors() {
           'Domen-5': getField('set-domain-5'),
         },
       };
-      MapModule.setStyleConfig(nextCfg);
-      if (typeof Domens !== 'undefined' && Domens.setColors) {
-        Domens.setColors(nextCfg.domainColors);
-      }
-      localStorage.setItem(MAP_STYLE_STORAGE_KEY, JSON.stringify(nextCfg));
-      renderMapModeLegend();
-      updateMapLegendPoints();
-      if (_mapSchemeImg) redrawMap();
-      var msg = document.getElementById('map-color-save-msg');
-      if (msg) msg.textContent = '✅ Цвета сохранены';
+      applyMapStylePatch(patch);
+      var msg = document.getElementById('map-domain-save-msg');
+      if (msg) msg.textContent = '✅ Цвета доменов сохранены';
     });
   }
+}
+
+function applyMapStylePatch(patch) {
+  if (typeof MapModule === 'undefined') return;
+  var current = getSavedMapStyleSettings();
+  var merged = deepMerge(current, patch || {});
+  if (merged.intensityColor && !merged.intensityColors) {
+    merged.intensityColors = { marker: merged.intensityColor };
+  }
+  if (merged.intensityColors && merged.intensityColors.marker) {
+    merged.intensityColor = merged.intensityColors.marker;
+  }
+  MapModule.setStyleConfig(merged);
+  if (typeof Domens !== 'undefined' && Domens.setColors && merged.domainColors) {
+    Domens.setColors(merged.domainColors);
+  }
+  localStorage.setItem(MAP_STYLE_STORAGE_KEY, JSON.stringify(merged));
+  renderMapModeLegend();
+  updateMapLegendPoints();
+  if (_mapSchemeImg) redrawMap();
+}
+
+function getSavedMapStyleSettings() {
+  try {
+    var raw = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch(e) {
+    return {};
+  }
+}
+
+function deepMerge(target, patch) {
+  var out = JSON.parse(JSON.stringify(target || {}));
+  Object.keys(patch || {}).forEach(function(k) {
+    if (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) {
+      out[k] = deepMerge(out[k] || {}, patch[k]);
+    } else {
+      out[k] = patch[k];
+    }
+  });
+  return out;
+}
+
+function renderSettingsSchemes() {
+  var weekEl = document.getElementById('settings-week-key');
+  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
+  var container = document.getElementById('settings-schemes-list');
+  if (!container) return;
+  var schemes = Schemes.getList();
+  var current = Schemes.currentWeekKey();
+  if (!schemes.length) {
+    container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < schemes.length; i++) {
+    var s = schemes[i];
+    html += '<div class="scheme-item">';
+    html += '<div><div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
+    html += '<div class="scheme-item__date">' + (s.uploadedAt ? formatDate(s.uploadedAt) : '—') + '</div></div>';
+    if (s.weekKey === current) html += '<span class="scheme-item__current">✅ Текущая</span>';
+    html += '</div>';
+  }
+}
+
+function uploadScheme() {
+  var fileInput = document.getElementById('scheme-file');
+  var statusEl  = document.getElementById('scheme-upload-status');
+  var file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { alert('Выберите файл схемы'); return; }
+  var weekKey = Schemes.currentWeekKey();
+  var uploadBtn = document.getElementById('btn-upload-scheme');
+  if (statusEl) statusEl.textContent = '⏳ Загрузка...';
+  if (uploadBtn) uploadBtn.disabled = true;
+  Schemes.upload(file, weekKey, Storage.getDeviceId()).then(function() {
+    if (statusEl) statusEl.textContent = '✅ Схема загружена';
+    if (fileInput) fileInput.value = '';
+    var preview = document.getElementById('scheme-preview');
+    if (preview) preview.innerHTML = '';
+    return Schemes.load();
+  }).then(function() {
+    renderSettingsSchemes();
+    _mapSchemeImg = null;
+    if (AppState.currentTab === 'map') renderMap();
+  }).catch(function(err) {
+    if (statusEl) statusEl.textContent = '❌ ' + err.message;
+  }).then(function() {
+    if (uploadBtn) uploadBtn.disabled = false;
+  });
 }
 
 function loadMapStyleSettings() {
@@ -1778,6 +1902,9 @@ function loadMapStyleSettings() {
     var raw = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
     if (!raw || typeof MapModule === 'undefined') return;
     var cfg = JSON.parse(raw);
+    if (cfg.intensityColors && cfg.intensityColors.marker && !cfg.intensityColor) {
+      cfg.intensityColor = cfg.intensityColors.marker;
+    }
     MapModule.setStyleConfig(cfg);
     if (typeof Domens !== 'undefined' && Domens.setColors && cfg.domainColors) {
       Domens.setColors(cfg.domainColors);
