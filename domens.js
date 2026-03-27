@@ -613,6 +613,28 @@ var Domens = (function() {
   }
 
   function getList() { return POLYGONS; }
+  function setColors(colorMap) {
+    if (!colorMap) return;
+    POLYGONS.forEach(function(d) {
+      if (!colorMap[d.name]) return;
+      d.stroke = colorMap[d.name];
+      d.fill = hexToRgba(d.stroke, 0.22);
+    });
+  }
+  function getColors() {
+    var out = {};
+    POLYGONS.forEach(function(d) { out[d.name] = d.stroke; });
+    return out;
+  }
+
+  function hexToRgba(hex, alpha) {
+    var h = (hex || '').replace('#', '');
+    if (h.length !== 6) return 'rgba(120,120,120,' + alpha + ')';
+    var r = parseInt(h.slice(0,2), 16);
+    var g = parseInt(h.slice(2,4), 16);
+    var b = parseInt(h.slice(4,6), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+  }
 
   return {
     isVisible:    isVisible,
@@ -621,5 +643,7 @@ var Domens = (function() {
     draw:         draw,
     findDomenAt:  findDomenAt,
     getList:      getList,
+    setColors:    setColors,
+    getColors:    getColors,
   };
 })();
