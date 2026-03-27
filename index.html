@@ -204,43 +204,17 @@
           <label class="form-label" for="map-filter-worker">Сотрудник</label>
           <select id="map-filter-worker" class="filter-select filter-select--full"></select>
         </div>
+        <div class="map-filter-group">
+          <label class="form-label">Отображение точек</label>
+          <div id="map-mode-switch" class="map-mode-switch">
+            <label><input type="radio" name="map-marker-mode" value="simple"> Simple</label>
+            <label><input type="radio" name="map-marker-mode" value="status"> Status</label>
+            <label><input type="radio" name="map-marker-mode" value="intensity"> Intensity</label>
+            <label><input type="radio" name="map-marker-mode" value="combined" checked> Combined</label>
+          </div>
+        </div>
         <hr style="border:none;border-top:1px solid var(--line-2);margin:10px 0">
-        <div class="map-legend-item">
-          <span class="map-legend-dot" style="background:#1a73e8"></span>
-          <span>Новая</span>
-        </div>
-        <div class="map-legend-item">
-          <span class="map-legend-dot" style="background:#34a853"></span>
-          <span>Активная</span>
-        </div>
-        <div class="map-legend-item">
-          <span class="map-legend-dot" style="background:#f9ab00"></span>
-          <span>Иссякает</span>
-        </div>
-        <div class="map-legend-item">
-          <span class="map-legend-dot" style="background:#ea4335"></span>
-          <span>Пересохла</span>
-        </div>
-        <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
-        <div class="map-legend-subtitle">Интенсивность (размер маркера)</div>
-        <div class="map-legend-intensity">
-          <div class="map-legend-item">
-            <span class="map-legend-dot map-intensity-dot i-weak"></span>
-            <span>Слабая (капёж)</span>
-          </div>
-          <div class="map-legend-item">
-            <span class="map-legend-dot map-intensity-dot i-mid"></span>
-            <span>Умеренная</span>
-          </div>
-          <div class="map-legend-item">
-            <span class="map-legend-dot map-intensity-dot i-strong"></span>
-            <span>Сильная (поток)</span>
-          </div>
-          <div class="map-legend-item">
-            <span class="map-legend-dot map-intensity-dot i-vstrong"></span>
-            <span>Очень сильная</span>
-          </div>
-        </div>
+        <div id="map-mode-legend"></div>
         <hr style="border:none;border-top:1px solid var(--line-2);margin:8px 0">
         <div id="map-legend-points" style="font-size:11px;color:var(--txt-3)"></div>
       </div>

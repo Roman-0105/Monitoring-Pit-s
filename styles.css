@@ -517,6 +517,25 @@ body {
 }
 .map-legend-body { padding: 10px; overflow: auto; }
 .map-filter-group { margin-bottom: 8px; }
+.map-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.map-mode-switch label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--txt-2);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  padding: 5px 6px;
+  background: rgba(255,255,255,.02);
+}
+.map-mode-switch input[type=\"radio\"] {
+  accent-color: var(--gold);
+}
 .map-legend-panel.collapsed .map-legend-body,
 .map-legend-panel.collapsed .map-legend-title { display: none; }
 .map-legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--txt-2); padding: 4px 0; }

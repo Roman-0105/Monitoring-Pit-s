@@ -1266,6 +1266,71 @@ function initMapLegend() {
     dBtn.style.color       = '#fff';
     dBtn.style.borderColor = 'var(--blue)';
   }
+
+  // Режим отображения маркеров
+  var modeWrap = document.getElementById('map-mode-switch');
+  if (modeWrap && !modeWrap._bound) {
+    modeWrap._bound = true;
+    modeWrap.querySelectorAll('input[name=\"map-marker-mode\"]').forEach(function(input) {
+      input.checked = (typeof MapModule !== 'undefined' && MapModule.getMarkerMode() === input.value);
+      input.addEventListener('change', function() {
+        if (!this.checked || typeof MapModule === 'undefined') return;
+        MapModule.setMarkerMode(this.value);
+        MapModule.resetMarkerStyleCache();
+        renderMapModeLegend();
+        redrawMap();
+      });
+    });
+  }
+  renderMapModeLegend();
+}
+
+function renderMapModeLegend() {
+  var container = document.getElementById('map-mode-legend');
+  if (!container || typeof MapModule === 'undefined') return;
+  var cfg = MapModule.getStyleConfig();
+  var mode = MapModule.getMarkerMode();
+  var html = '';
+
+  function statusRows() {
+    var rows = '';
+    ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
+      var c = cfg.statusColors[s] || '#777';
+      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + c + '\"></span><span>' + s + '</span></div>';
+    });
+    return rows;
+  }
+  function intensityRows() {
+    var rows = '<div class=\"map-legend-subtitle\">Интенсивность (размер маркера)</div>';
+    [
+      ['Слабая (капёж)', 'i-weak'],
+      ['Умеренная', 'i-mid'],
+      ['Сильная (поток)', 'i-strong'],
+      ['Очень сильная', 'i-vstrong']
+    ].forEach(function(pair) {
+      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot map-intensity-dot ' + pair[1] +
+        '\"></span><span>' + pair[0] + '</span></div>';
+    });
+    return rows;
+  }
+
+  if (mode === 'simple') {
+    html += '<div class=\"map-legend-subtitle\">Simple</div>';
+    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.simpleColor + '\"></span><span>Единый цвет точек</span></div>';
+  } else if (mode === 'status') {
+    html += '<div class=\"map-legend-subtitle\">Status</div>' + statusRows();
+  } else if (mode === 'intensity') {
+    html += '<div class=\"map-legend-subtitle\">Intensity</div>';
+    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.intensityColor + '\"></span><span>Единый цвет</span></div>';
+    html += intensityRows();
+  } else {
+    html += '<div class=\"map-legend-subtitle\">Combined</div>';
+    html += '<div class=\"form-hint\" style=\"margin-bottom:6px\">Размер = интенсивность, badge = статус</div>';
+    html += intensityRows();
+    html += '<hr style=\"border:none;border-top:1px solid var(--line-2);margin:8px 0\">';
+    html += statusRows();
+  }
+  container.innerHTML = html;
 }
 
 function updateMapLegendPoints() {
