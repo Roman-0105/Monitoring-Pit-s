@@ -209,11 +209,6 @@ body {
   transition: border-color var(--tr), box-shadow var(--tr), transform var(--tr);
 }
 .form-select { appearance: none; -webkit-appearance: none; padding-right: 34px; }
-.form-select option,
-.filter-select option {
-  background: #1b2430;
-  color: var(--txt-1);
-}
 .form-input:focus, .form-select:focus, .form-textarea:focus, #new-worker-name:focus {
   outline: none;
   border-color: rgba(242,166,54,.7);
