@@ -21,18 +21,119 @@
 var MapModule = (function() {
 
   var OFF_X = 5800000;
+  var MARKER_MODE = 'combined'; // simple | status | intensity | combined
+  var _styleCache = {};
 
   var BOUNDS = {
     Xmin: 45850, Xmax: 47350,
     Ymin: 15800, Ymax: 17350,
   };
 
-  var STATUS_COLORS = {
-    'Новая':     '#1a73e8',
-    'Активная':  '#34a853',
-    'Иссякает':  '#f9ab00',
-    'Пересохла': '#ea4335',
+  var MAP_STYLE = {
+    minMarkerSize: 4,
+    maxMarkerSize: 11,
+    baseHitPadding: 4,
+    simpleColor: '#7f1d1d',
+    intensityColor: '#b8c0cf',
+    combinedBaseColor: '#e7edf7',
+    statusColors: {
+      'Новая':     '#1a73e8',
+      'Активная':  '#34a853',
+      'Иссякает':  '#f9ab00',
+      'Искакает':  '#f9ab00', // поддержка опечатки
+      'Пересохла': '#ea4335',
+    },
+    intensitySizes: {
+      'Слабая (капёж)': 4.5,
+      'Умеренная': 6,
+      'Сильная (поток)': 7.5,
+      'Очень сильная': 9,
+    },
+    domainColors: {
+      'Domen-1': '#1a73e8',
+      'Domen-2': '#34a853',
+      'Domen-3': '#f9ab00',
+      'Domen-4': '#ea4335',
+      'Domen-5': '#7c3aed',
+    },
   };
+
+  var STATUS_COLORS = MAP_STYLE.statusColors;
+
+  function getIntensityRadius(intensity) {
+    return MAP_STYLE.intensitySizes[intensity] || 5.5;
+  }
+
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function normalizeScale(viewScale) {
+    return (typeof viewScale === 'number' && viewScale > 0) ? viewScale : 1;
+  }
+
+  function getScaleAwareSize(base, viewScale) {
+    // zoom out => scale меньше => маркер больше
+    var raw = base / normalizeScale(viewScale);
+    return clamp(raw, MAP_STYLE.minMarkerSize, MAP_STYLE.maxMarkerSize);
+  }
+
+  function getScreenRadius(intensity, viewScale) {
+    return getScaleAwareSize(getIntensityRadius(intensity), viewScale);
+  }
+
+  function getScaleBucket(viewScale) {
+    var s = normalizeScale(viewScale);
+    return Math.round(s * 20) / 20;
+  }
+
+  function getMarkerStyle(point, mode, viewScale) {
+    var effectiveMode = mode || MARKER_MODE;
+    var scaleBucket = getScaleBucket(viewScale);
+    var status = point.status || 'Новая';
+    var intensity = point.intensity || '';
+    var key = effectiveMode + '|' + status + '|' + intensity + '|' + scaleBucket;
+    if (_styleCache[key]) return _styleCache[key];
+
+    var style = {
+      size: getScaleAwareSize(6, scaleBucket),
+      color: MAP_STYLE.simpleColor,
+      badgeColor: null,
+      showBadge: false,
+    };
+
+    if (effectiveMode === 'status') {
+      style.color = STATUS_COLORS[status] || '#666';
+      style.size = getScaleAwareSize(6, scaleBucket);
+    } else if (effectiveMode === 'intensity') {
+      style.color = MAP_STYLE.intensityColor;
+      style.size = getScreenRadius(intensity, scaleBucket);
+    } else if (effectiveMode === 'combined') {
+      style.color = MAP_STYLE.combinedBaseColor;
+      style.size = getScreenRadius(intensity, scaleBucket);
+      style.badgeColor = STATUS_COLORS[status] || '#666';
+      style.showBadge = true;
+    }
+
+    _styleCache[key] = style;
+    return style;
+  }
+
+  function setMarkerMode(mode) {
+    MARKER_MODE = (mode || 'combined').toLowerCase();
+  }
+  function getMarkerMode() { return MARKER_MODE; }
+  function resetMarkerStyleCache() { _styleCache = {}; }
+
+  function getStyleConfig() {
+    return {
+      statusColors: MAP_STYLE.statusColors,
+      intensitySizes: MAP_STYLE.intensitySizes,
+      domainColors: MAP_STYLE.domainColors,
+      simpleColor: MAP_STYLE.simpleColor,
+      intensityColor: MAP_STYLE.intensityColor,
+    };
+  }
 
   // ── Пиксели → X/Y ────────────────────────────────────────
   // X растёт слева направо: Xmin=45850 при px=0, Xmax=47350 при px=W
@@ -120,7 +221,7 @@ var MapModule = (function() {
   }
 
   // ── Рендер точек ─────────────────────────────────────────
-  function drawPoints(ctx, points, imgW, imgH) {
+  function drawPoints(ctx, points, imgW, imgH, viewScale) {
     for (var i = 0; i < points.length; i++) {
       var p = points[i];
       var x = p.xLocal, y = p.yLocal;
@@ -130,28 +231,44 @@ var MapModule = (function() {
       }
       if (x == null || y == null) continue;
       var pos = xyToPixel(x, y, imgW, imgH);
-      var color = STATUS_COLORS[p.status] || '#666';
+      var marker = getMarkerStyle(p, MARKER_MODE, viewScale);
+      var radius = marker.size;
       ctx.shadowColor = 'rgba(0,0,0,0.25)';
       ctx.shadowBlur  = 5;
       ctx.beginPath();
-      ctx.arc(pos.px, pos.py, 9, 0, Math.PI*2);
-      ctx.fillStyle = color;
+      ctx.arc(pos.px, pos.py, radius, 0, Math.PI*2);
+      ctx.fillStyle = marker.color;
       ctx.fill();
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur  = 0;
       ctx.strokeStyle = '#fff';
-      ctx.lineWidth   = 2;
+      ctx.lineWidth   = 1.5;
       ctx.stroke();
       ctx.fillStyle    = '#fff';
       ctx.font         = 'bold 9px sans-serif';
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(p.pointNumber || '?'), pos.px, pos.py);
+      if (marker.showBadge) {
+        var br = Math.max(3, Math.min(6, radius * 0.45));
+        var bx = pos.px + radius * 0.55;
+        var by = pos.py - radius * 0.55;
+        ctx.beginPath();
+        ctx.arc(bx, by, br, 0, Math.PI * 2);
+        ctx.fillStyle = marker.badgeColor || '#666';
+        ctx.fill();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.stroke();
+      }
+      // для компактных маркеров не рисуем номер внутри — меньше шума
+      if (radius >= 6.5 && MARKER_MODE !== 'combined') {
+        ctx.fillText(String(p.pointNumber || '?'), pos.px, pos.py);
+      }
     }
   }
 
   // ── Hit-test ─────────────────────────────────────────────
-  function findPointAt(imgX, imgY, points, imgW, imgH) {
+  function findPointAt(imgX, imgY, points, imgW, imgH, viewScale) {
     for (var i = 0; i < points.length; i++) {
       var p = points[i];
       var x = p.xLocal, y = p.yLocal;
@@ -162,7 +279,9 @@ var MapModule = (function() {
       if (x == null || y == null) continue;
       var pos = xyToPixel(x, y, imgW, imgH);
       var dx  = imgX - pos.px, dy = imgY - pos.py;
-      if (Math.sqrt(dx*dx + dy*dy) <= 14) return p;
+      var marker = getMarkerStyle(p, MARKER_MODE, viewScale);
+      var hit = marker.size + MAP_STYLE.baseHitPadding;
+      if (Math.sqrt(dx*dx + dy*dy) <= hit) return p;
     }
     return null;
   }
@@ -176,5 +295,11 @@ var MapModule = (function() {
     xyToWgs84:     xyToWgs84,
     drawPoints:    drawPoints,
     findPointAt:   findPointAt,
+    getIntensityRadius: getIntensityRadius,
+    getMarkerStyle: getMarkerStyle,
+    setMarkerMode: setMarkerMode,
+    getMarkerMode: getMarkerMode,
+    resetMarkerStyleCache: resetMarkerStyleCache,
+    getStyleConfig: getStyleConfig,
   };
 })();

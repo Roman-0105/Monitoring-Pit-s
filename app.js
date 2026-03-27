@@ -90,6 +90,9 @@ document.addEventListener('DOMContentLoaded', function() {
   Promise.all([Workers.load(), Points.load(), Schemes.load()]).then(function() {
     renderWorkers();
     renderPointsList();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     Diagnostics.clearError();
     Diagnostics.set('queueSize', Storage.getQueue().length);
     hideLoader();
@@ -97,6 +100,9 @@ document.addEventListener('DOMContentLoaded', function() {
     Diagnostics.setError('sync', 'Начальная загрузка: ' + err.message);
     renderWorkers();
     renderPointsList();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     hideLoader();
   });
 
@@ -114,6 +120,9 @@ function syncAll() {
   }).then(function() {
     renderPointsList();
     renderWorkers();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     Diagnostics.clearError();
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
@@ -139,9 +148,10 @@ function switchTab(name) {
   });
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
-  if (name === 'map')    { _mapSchemeImg = null; renderMap(); initMapLegend(); updateMapLegendPoints(); }
+  if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
   if (name === 'settings') renderSettingsSchemes();
   if (name === 'workers') renderWorkerManageList();
+  if (name === 'stats') renderStatsPage();
 }
 
 // ── Лоадер ───────────────────────────────────────────────
@@ -157,12 +167,59 @@ function hideLoader() {
 }
 
 // ── Список точек ─────────────────────────────────────────
+var _pointsFilters = { week: 'all', worker: 'all' };
+
+function initPointsFilters() {
+  var bar = document.getElementById('filter-bar');
+  if (!bar) return;
+  if (!bar._built) {
+    bar._built = true;
+    bar.innerHTML =
+      '<select id="points-filter-week" class="filter-select filter-select--full-mobile"></select>' +
+      '<select id="points-filter-worker" class="filter-select filter-select--full-mobile"></select>';
+  }
+
+  var weekSel = document.getElementById('points-filter-week');
+  var workerSel = document.getElementById('points-filter-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _pointsFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) { if (p.worker) workerSet[p.worker] = true; });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _pointsFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _pointsFilters.week = weekSel.value || 'all';
+      renderPointsList();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _pointsFilters.worker = workerSel.value || 'all';
+      renderPointsList();
+    });
+  }
+}
+
 function renderPointsList() {
   var container = document.getElementById('points-list');
   if (!container) return;
-  var points = Points.getList();
+  initPointsFilters();
+  var points = getFilteredPoints(_pointsFilters);
+  var allPoints = Points.getList();
   if (!points.length) {
-    container.innerHTML = '<p class="empty-msg">Точек пока нет</p>';
+    container.innerHTML = '<p class="empty-msg">Нет точек по выбранному фильтру</p>';
+    var c0 = document.getElementById('points-count-badge');
+    if (c0) c0.textContent = '0 / ' + allPoints.length + ' точек';
     return;
   }
   var html = '';
@@ -206,7 +263,7 @@ function renderPointsList() {
     if (p.intensity || p.flowRate != null) {
       html += '<div class="pc-row"><span class="pc-lbl">💧</span><span>';
       if (p.intensity) html += p.intensity;
-      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + p.flowRate + ' л/с';
+      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + formatFlowBothUnits(p.flowRate);
       html += '</span></div>';
     }
     if (p.waterColor) html += '<div class="pc-row"><span class="pc-lbl">🎨</span><span>' + p.waterColor + '</span></div>';
@@ -227,7 +284,7 @@ function renderPointsList() {
 
   // Счётчик точек
   var countEl = document.getElementById('points-count-badge');
-  if (countEl) countEl.textContent = points.length + ' точек';
+  if (countEl) countEl.textContent = points.length + ' / ' + allPoints.length + ' точек';
 
   container.querySelectorAll('.btn-edit').forEach(function(btn) {
     btn.addEventListener('click', function() { openEditModal(this.dataset.pid); });
@@ -273,6 +330,156 @@ function updateWorkerSelects() {
     });
     if (cur) sel.value = cur;
   });
+}
+
+function initStatsFilters() {
+  var weekSel = document.getElementById('stats-week');
+  var workerSel = document.getElementById('stats-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _statsFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) {
+    if (p.worker) workerSet[p.worker] = true;
+  });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _statsFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _statsFilters.week = weekSel.value || 'all';
+      renderStatsPage();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _statsFilters.worker = workerSel.value || 'all';
+      renderStatsPage();
+    });
+  }
+}
+
+function renderStatsPage() {
+  initStatsFilters();
+  var points = getFilteredPoints(_statsFilters);
+  var grid = document.getElementById('stats-grid');
+  var statusList = document.getElementById('stats-status-list');
+  var domainList = document.getElementById('stats-domain-list');
+  var statusChart = document.getElementById('stats-status-chart');
+  var intensityChart = document.getElementById('stats-intensity-chart');
+  if (!grid || !statusList || !domainList || !statusChart || !intensityChart) return;
+
+  var totalFlow = 0;
+  var withFlow = 0;
+  var withPhoto = 0;
+  var active = 0;
+  points.forEach(function(p) {
+    var flow = parseFloat(p.flowRate);
+    if (!isNaN(flow)) { totalFlow += flow; withFlow++; }
+    if (p.photoUrls && p.photoUrls[0]) withPhoto++;
+    if (p.status === 'Активная') active++;
+  });
+
+  var avgFlow = withFlow ? (totalFlow / withFlow) : null;
+
+  grid.innerHTML =
+    '<div class="stats-kpi"><div class="stats-kpi__label">Всего точек</div><div class="stats-kpi__value">' + points.length + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Активные</div><div class="stats-kpi__value">' + active + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">С фото</div><div class="stats-kpi__value">' + withPhoto + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Средний водоприток</div><div class="stats-kpi__value">' +
+      (avgFlow != null ? avgFlow.toFixed(2) : '—') + ' л/с<small>' +
+      (avgFlow != null ? lpsToM3h(avgFlow).toFixed(2) : '—') + ' м³/ч</small></div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Суммарный водоприток</div><div class="stats-kpi__value">' +
+      totalFlow.toFixed(2) + ' л/с<small>' + lpsToM3h(totalFlow).toFixed(2) + ' м³/ч</small></div></div>';
+
+  var byStatus = {};
+  var byDomain = {};
+  var byIntensity = {};
+  points.forEach(function(p) {
+    var s = p.status || 'Неизвестно';
+    byStatus[s] = (byStatus[s] || 0) + 1;
+    var d = p.domain || '—';
+    byDomain[d] = (byDomain[d] || 0) + 1;
+    var i = p.intensity || 'Не указана';
+    byIntensity[i] = (byIntensity[i] || 0) + 1;
+  });
+
+  function renderBreakdown(obj) {
+    var keys = Object.keys(obj).sort(function(a, b) { return obj[b] - obj[a]; });
+    if (!keys.length) return '<p class="form-hint">Нет данных по фильтру.</p>';
+    var html = '<div class="stats-list">';
+    keys.forEach(function(k) {
+      html += '<div class="stats-list-row"><span>' + k + '</span><b>' + obj[k] + '</b></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+  statusList.innerHTML = renderBreakdown(byStatus);
+  domainList.innerHTML = renderBreakdown(byDomain);
+  renderPieChart(statusChart, byStatus, {
+    'Новая': '#4f8dff',
+    'Активная': '#39d98a',
+    'Иссякает': '#f3bf4a',
+    'Пересохла': '#ff6b6b',
+    'Неизвестно': '#8f9aae',
+  });
+  renderPieChart(intensityChart, byIntensity, {
+    'Слабая (капёж)': '#8bc8ff',
+    'Умеренная': '#39d98a',
+    'Сильная (поток)': '#f3bf4a',
+    'Очень сильная': '#ff8a4a',
+    'Не указана': '#8f9aae',
+  });
+}
+
+function renderPieChart(container, statsObj, palette) {
+  if (!container) return;
+  var keys = Object.keys(statsObj).filter(function(k) { return statsObj[k] > 0; });
+  var total = keys.reduce(function(acc, k) { return acc + statsObj[k]; }, 0);
+  if (!total) {
+    container.innerHTML = '<p class="form-hint">Нет данных по выбранному фильтру.</p>';
+    return;
+  }
+  var cx = 90, cy = 90, r = 70;
+  var offset = 0;
+  var circles = '';
+  keys.forEach(function(k) {
+    var val = statsObj[k];
+    var frac = val / total;
+    var len = frac * (2 * Math.PI * r);
+    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
+    circles += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+      '" fill="none" stroke="' + color + '" stroke-width="22" stroke-linecap="butt" ' +
+      'stroke-dasharray="' + len.toFixed(2) + ' ' + (2 * Math.PI * r).toFixed(2) + '" ' +
+      'stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 90 90)"></circle>';
+    offset += len;
+  });
+  var legend = '<div class="pie-legend">';
+  keys.forEach(function(k) {
+    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
+    legend += '<div class="pie-legend-row">' +
+      '<span class="pie-legend-name"><span class="pie-legend-dot" style="background:' + color + '"></span>' + k + '</span>' +
+      '<b>' + statsObj[k] + '</b></div>';
+  });
+  legend += '</div>';
+
+  container.innerHTML =
+    '<div class="pie-chart-wrap">' +
+      '<svg class="pie-chart-svg" viewBox="0 0 180 180" aria-label="Круговая диаграмма">' +
+        '<circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="22"></circle>' +
+        circles +
+        '<text x="90" y="88" text-anchor="middle" fill="#ffd08b" style="font-size:22px;font-weight:800">' + total + '</text>' +
+        '<text x="90" y="106" text-anchor="middle" fill="#95a0af" style="font-size:11px">точек</text>' +
+      '</svg>' +
+      legend +
+    '</div>';
 }
 
 function renderWorkerManageList() {
@@ -360,12 +567,16 @@ function initAddForm() {
   var fLon = document.getElementById('f-lon');
   if (fLat) fLat.addEventListener('change', function() { recalcLocalCoords('f'); });
   if (fLon) fLon.addEventListener('change', function() { recalcLocalCoords('f'); });
+  var fFlow = document.getElementById('f-flowrate');
+  if (fFlow) fFlow.addEventListener('input', function() { updateFlowHint('f'); });
+  updateFlowHint('f');
 }
 
 function resetAddForm() {
   var form = document.getElementById('add-form');
   if (form) form.reset();
   Photos.clearInput('f-photo', 'f-photo-preview');
+  updateFlowHint('f');
 }
 
 function saveNewPoint() {
@@ -429,6 +640,8 @@ function initEditModal() {
   var eLon = document.getElementById('e-lon');
   if (eLat) eLat.addEventListener('change', function() { recalcLocalCoords('e'); });
   if (eLon) eLon.addEventListener('change', function() { recalcLocalCoords('e'); });
+  var eFlow = document.getElementById('e-flowrate');
+  if (eFlow) eFlow.addEventListener('input', function() { updateFlowHint('e'); });
 
   // Кнопка добавления точки на карте
   var addMapBtn = document.getElementById('btn-map-add-point');
@@ -454,6 +667,7 @@ function openEditModal(id) {
   }
   setField('e-intensity', p.intensity   || '');
   setField('e-flowrate',  p.flowRate != null ? p.flowRate : '');
+  updateFlowHint('e');
   setField('e-color',     p.waterColor  || '');
   setField('e-wall',      p.wall        || '');
   setField('e-domain',    p.domain      || '');
@@ -510,6 +724,17 @@ function closeEditModal() {
   // Убираем строку с местными координатами
   var coordInfo = document.getElementById('e-map-coord-info');
   if (coordInfo) coordInfo.textContent = '';
+}
+
+function updateFlowHint(prefix) {
+  var flow = parseFloatOrNull(getField(prefix + '-flowrate'));
+  var hint = document.getElementById(prefix + '-flowrate-m3h');
+  if (!hint) return;
+  if (flow == null) {
+    hint.textContent = 'Эквивалент: — м³/ч';
+    return;
+  }
+  hint.textContent = 'Эквивалент: ' + lpsToM3h(flow).toFixed(2) + ' м³/ч';
 }
 
 function saveEditedPoint() {
@@ -659,15 +884,13 @@ var _mapAddMode    = false;  // режим добавления точки
 var _mapDragging   = false;
 var _mapDragStartX = 0;
 var _mapDragStartY = 0;
+var _mapFilters = { week: 'all', worker: 'all' };
+var _statsFilters = { week: 'all', worker: 'all' };
 
 function renderMap() {
   var canvas   = document.getElementById('map-canvas');
   var noScheme = document.getElementById('map-no-scheme');
-  var weekLabel = document.getElementById('map-week-label');
   if (!canvas) return;
-
-  var weekKey = Schemes.currentWeekKey();
-  if (weekLabel) weekLabel.textContent = Schemes.formatWeekKey(weekKey);
 
   var scheme = Schemes.getCurrent();
   if (!scheme) {
@@ -703,12 +926,99 @@ function renderMap() {
       _mapOffX = 0;
       _mapOffY = 0;
       setupMapCanvas(canvas);
+      initMapFilters();
       redrawMap();
       initMapInteraction(canvas);
       initMapZoomButtons();
     };
     img.src = dataUrl;
   });
+}
+
+function getWeekKeyFromDate(iso) {
+  if (!iso) return null;
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  var dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  var dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  var yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  var weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return dt.getUTCFullYear() + '-W' + (weekNo < 10 ? '0' + weekNo : weekNo);
+}
+
+function getAllWeekKeys() {
+  var set = {};
+  Points.getList().forEach(function(p) {
+    var wk = getWeekKeyFromDate(p.createdAt);
+    if (wk) set[wk] = true;
+  });
+  Schemes.getList().forEach(function(s) {
+    if (s.weekKey) set[s.weekKey] = true;
+  });
+  return Object.keys(set).sort().reverse();
+}
+
+function fillSelectOptions(selectEl, options, selectedValue, fallbackLabel) {
+  if (!selectEl) return;
+  var html = '<option value="all">' + (fallbackLabel || 'Все') + '</option>';
+  options.forEach(function(opt) {
+    html += '<option value="' + escAttr(opt.value) + '">' + opt.label + '</option>';
+  });
+  selectEl.innerHTML = html;
+  selectEl.value = selectedValue || 'all';
+}
+
+function initMapFilters() {
+  var weekSel = document.getElementById('map-filter-week');
+  var workerSel = document.getElementById('map-filter-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _mapFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) {
+    if (p.worker) workerSet[p.worker] = true;
+  });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _mapFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _mapFilters.week = weekSel.value || 'all';
+      redrawMap();
+      updateMapLegendPoints();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _mapFilters.worker = workerSel.value || 'all';
+      redrawMap();
+      updateMapLegendPoints();
+    });
+  }
+}
+
+function getFilteredPoints(filterState) {
+  var state = filterState || { week: 'all', worker: 'all' };
+  return Points.getList().filter(function(p) {
+    if (state.worker && state.worker !== 'all' && (p.worker || '') !== state.worker) return false;
+    if (state.week && state.week !== 'all') {
+      var pWeek = getWeekKeyFromDate(p.createdAt);
+      if (pWeek !== state.week) return false;
+    }
+    return true;
+  });
+}
+
+function getFilteredPointsForMap() {
+  return getFilteredPoints(_mapFilters);
 }
 
 function setupMapCanvas(canvas) {
@@ -735,7 +1045,7 @@ function redrawMap() {
     Domens.draw(ctx, _mapSchemeImg.width, _mapSchemeImg.height);
   }
   if (typeof MapModule !== 'undefined') {
-    MapModule.drawPoints(ctx, Points.getList(), _mapSchemeImg.width, _mapSchemeImg.height);
+    MapModule.drawPoints(ctx, getFilteredPointsForMap(), _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
   }
   ctx.restore();
   // Обновляем масштаб в статус-баре
@@ -857,8 +1167,8 @@ function initMapInteraction(canvas) {
     if (!_mapAddMode && _mapSchemeImg && typeof MapModule !== 'undefined') {
       var imgX = (cx - _mapOffX) / _mapScale;
       var imgY = (cy - _mapOffY) / _mapScale;
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
       } else {
@@ -887,8 +1197,8 @@ function initMapInteraction(canvas) {
     var imgX = (cx - _mapOffX) / _mapScale;
     var imgY = (cy - _mapOffY) / _mapScale;
     if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
       } else {
@@ -918,8 +1228,8 @@ function initMapInteraction(canvas) {
     }
 
     if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
-                _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
+                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
       if (p) showMapPointCard(p);
     }
   });
@@ -956,31 +1266,110 @@ function initMapLegend() {
     dBtn.style.color       = '#fff';
     dBtn.style.borderColor = 'var(--blue)';
   }
+
+  // Режим отображения маркеров
+  var modeWrap = document.getElementById('map-mode-switch');
+  if (modeWrap && !modeWrap._bound) {
+    modeWrap._bound = true;
+    modeWrap.querySelectorAll('input[name=\"map-marker-mode\"]').forEach(function(input) {
+      input.checked = (typeof MapModule !== 'undefined' && MapModule.getMarkerMode() === input.value);
+      input.addEventListener('change', function() {
+        if (!this.checked || typeof MapModule === 'undefined') return;
+        MapModule.setMarkerMode(this.value);
+        MapModule.resetMarkerStyleCache();
+        renderMapModeLegend();
+        redrawMap();
+      });
+    });
+  }
+  renderMapModeLegend();
+}
+
+function renderMapModeLegend() {
+  var container = document.getElementById('map-mode-legend');
+  if (!container || typeof MapModule === 'undefined') return;
+  var cfg = MapModule.getStyleConfig();
+  var mode = MapModule.getMarkerMode();
+  var html = '';
+
+  function statusRows() {
+    var rows = '';
+    ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
+      var c = cfg.statusColors[s] || '#777';
+      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + c + '\"></span><span>' + s + '</span></div>';
+    });
+    return rows;
+  }
+  function intensityRows() {
+    var rows = '<div class=\"map-legend-subtitle\">Интенсивность (размер маркера)</div>';
+    [
+      ['Слабая (капёж)', 'i-weak'],
+      ['Умеренная', 'i-mid'],
+      ['Сильная (поток)', 'i-strong'],
+      ['Очень сильная', 'i-vstrong']
+    ].forEach(function(pair) {
+      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot map-intensity-dot ' + pair[1] +
+        '\"></span><span>' + pair[0] + '</span></div>';
+    });
+    return rows;
+  }
+
+  if (mode === 'simple') {
+    html += '<div class=\"map-legend-subtitle\">Simple</div>';
+    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.simpleColor + '\"></span><span>Единый цвет точек</span></div>';
+  } else if (mode === 'status') {
+    html += '<div class=\"map-legend-subtitle\">Status</div>' + statusRows();
+  } else if (mode === 'intensity') {
+    html += '<div class=\"map-legend-subtitle\">Intensity</div>';
+    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.intensityColor + '\"></span><span>Единый цвет</span></div>';
+    html += intensityRows();
+  } else {
+    html += '<div class=\"map-legend-subtitle\">Combined</div>';
+    html += '<div class=\"form-hint\" style=\"margin-bottom:6px\">Размер = интенсивность, badge = статус</div>';
+    html += intensityRows();
+    html += '<hr style=\"border:none;border-top:1px solid var(--line-2);margin:8px 0\">';
+    html += statusRows();
+  }
+  container.innerHTML = html;
 }
 
 function updateMapLegendPoints() {
   var container = document.getElementById('map-legend-points');
   if (!container) return;
-  var points = Points.getList();
+  var points = getFilteredPointsForMap();
   var byStatus = {};
+  var byIntensity = {};
   points.forEach(function(p) {
     var s = p.status || 'Неизвестно';
     byStatus[s] = (byStatus[s] || 0) + 1;
+    var it = p.intensity || 'Не указана';
+    byIntensity[it] = (byIntensity[it] || 0) + 1;
   });
-  var html = 'Всего точек: <b>' + points.length + '</b><br><br>';
-  Object.keys(byStatus).forEach(function(s) {
-    html += s + ': ' + byStatus[s] + '<br>';
+  var html = '<div style="margin-bottom:8px">Показано точек: <b>' + points.length + '</b></div>';
+  html += '<div style="margin-bottom:8px;font-size:10px;color:var(--txt-3)">Фильтр: ' +
+          (_mapFilters.week === 'all' ? 'все недели' : Schemes.formatWeekKey(_mapFilters.week)) +
+          ' • ' + (_mapFilters.worker === 'all' ? 'все сотрудники' : _mapFilters.worker) + '</div>';
+  html += '<div style="display:grid;gap:4px">';
+  ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
+    html += '<div style="display:flex;justify-content:space-between"><span>' + s + '</span><b>' + (byStatus[s] || 0) + '</b></div>';
+  });
+  html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
   });
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
-    html += '<br><b>По доменам:</b><br>';
+    html += '<br><b>По доменам</b><br>';
     var byDomen = {};
     points.forEach(function(p) {
       var d = p.domain || '—';
       byDomen[d] = (byDomen[d] || 0) + 1;
     });
-    Object.keys(byDomen).sort().forEach(function(d) {
-      html += d + ': ' + byDomen[d] + '<br>';
+    Object.keys(byDomen).sort(function(a, b) { return byDomen[b] - byDomen[a]; }).forEach(function(d) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + d + '</span><b>' + byDomen[d] + '</b></div>';
     });
   }
   container.innerHTML = html;
@@ -1064,6 +1453,7 @@ function openAddPointModal(xLocal, yLocal) {
   AppState.editingPointId = null;
   ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-comment']
     .forEach(function(id) { setField(id, ''); });
+  updateFlowHint('e');
   setField('e-status', 'Новая');
   updateWorkerSelects();
   // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
@@ -1133,7 +1523,7 @@ function showMapTooltip(p, clientX, clientY) {
     '<span style="color:' + color + ';font-size:11px">' + (p.status || '') + '</span>' +
     '</div>' +
     (p.worker    ? '<div>👤 ' + p.worker + '</div>' : '') +
-    (p.flowRate != null ? '<div>💧 ' + p.flowRate + ' л/с</div>' : '') +
+    (p.flowRate != null ? '<div>💧 ' + formatFlowBothUnits(p.flowRate) + '</div>' : '') +
     (p.intensity ? '<div>' + p.intensity + '</div>' : '') +
     '<div style="color:var(--gray-600);font-size:11px">' + formatDate(p.createdAt) + '</div>';
 
@@ -1181,7 +1571,7 @@ function showMapPointCard(p) {
   if (p.domain)     html += '<div class="mpc-row"><span class="mpc-label">Домен</span><span>' + p.domain + '</span></div>';
   if (p.wall)       html += '<div class="mpc-row"><span class="mpc-label">Борт</span><span>' + p.wall + '</span></div>';
   if (p.intensity)  html += '<div class="mpc-row"><span class="mpc-label">Интенсивность</span><span>' + p.intensity + '</span></div>';
-  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + p.flowRate + ' л/с</span></div>';
+  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + formatFlowBothUnits(p.flowRate) + '</span></div>';
   if (p.waterColor) html += '<div class="mpc-row"><span class="mpc-label">Цвет воды</span><span>' + p.waterColor + '</span></div>';
   if (p.xLocal != null) {
     html += '<div class="mpc-row"><span class="mpc-label">X / Y</span><span>' +
@@ -1390,6 +1780,17 @@ function parseFloatOrNull(v) {
   if (v == null || String(v).trim() === '') return null;
   var n = parseFloat(String(v).replace(',', '.'));
   return isNaN(n) ? null : n;
+}
+function lpsToM3h(lps) {
+  var n = parseFloat(lps);
+  if (isNaN(n)) return null;
+  return n * 3.6;
+}
+function formatFlowBothUnits(lps) {
+  var n = parseFloat(lps);
+  if (isNaN(n)) return '—';
+  var m3h = lpsToM3h(n);
+  return n.toFixed(2) + ' л/с (' + m3h.toFixed(2) + ' м³/ч)';
 }
 function initials(name) {
   return (name || '').split(' ').map(function(s) { return s[0] || ''; }).join('').slice(0, 2).toUpperCase();
