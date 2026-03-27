@@ -167,12 +167,59 @@ function hideLoader() {
 }
 
 // ── Список точек ─────────────────────────────────────────
+var _pointsFilters = { week: 'all', worker: 'all' };
+
+function initPointsFilters() {
+  var bar = document.getElementById('filter-bar');
+  if (!bar) return;
+  if (!bar._built) {
+    bar._built = true;
+    bar.innerHTML =
+      '<select id="points-filter-week" class="filter-select filter-select--full-mobile"></select>' +
+      '<select id="points-filter-worker" class="filter-select filter-select--full-mobile"></select>';
+  }
+
+  var weekSel = document.getElementById('points-filter-week');
+  var workerSel = document.getElementById('points-filter-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _pointsFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) { if (p.worker) workerSet[p.worker] = true; });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _pointsFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _pointsFilters.week = weekSel.value || 'all';
+      renderPointsList();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _pointsFilters.worker = workerSel.value || 'all';
+      renderPointsList();
+    });
+  }
+}
+
 function renderPointsList() {
   var container = document.getElementById('points-list');
   if (!container) return;
-  var points = Points.getList();
+  initPointsFilters();
+  var points = getFilteredPoints(_pointsFilters);
+  var allPoints = Points.getList();
   if (!points.length) {
-    container.innerHTML = '<p class="empty-msg">Точек пока нет</p>';
+    container.innerHTML = '<p class="empty-msg">Нет точек по выбранному фильтру</p>';
+    var c0 = document.getElementById('points-count-badge');
+    if (c0) c0.textContent = '0 / ' + allPoints.length + ' точек';
     return;
   }
   var html = '';
@@ -237,7 +284,7 @@ function renderPointsList() {
 
   // Счётчик точек
   var countEl = document.getElementById('points-count-badge');
-  if (countEl) countEl.textContent = points.length + ' точек';
+  if (countEl) countEl.textContent = points.length + ' / ' + allPoints.length + ' точек';
 
   container.querySelectorAll('.btn-edit').forEach(function(btn) {
     btn.addEventListener('click', function() { openEditModal(this.dataset.pid); });
@@ -325,7 +372,9 @@ function renderStatsPage() {
   var grid = document.getElementById('stats-grid');
   var statusList = document.getElementById('stats-status-list');
   var domainList = document.getElementById('stats-domain-list');
-  if (!grid || !statusList || !domainList) return;
+  var statusChart = document.getElementById('stats-status-chart');
+  var intensityChart = document.getElementById('stats-intensity-chart');
+  if (!grid || !statusList || !domainList || !statusChart || !intensityChart) return;
 
   var totalFlow = 0;
   var withFlow = 0;
@@ -347,11 +396,14 @@ function renderStatsPage() {
 
   var byStatus = {};
   var byDomain = {};
+  var byIntensity = {};
   points.forEach(function(p) {
     var s = p.status || 'Неизвестно';
     byStatus[s] = (byStatus[s] || 0) + 1;
     var d = p.domain || '—';
     byDomain[d] = (byDomain[d] || 0) + 1;
+    var i = p.intensity || 'Не указана';
+    byIntensity[i] = (byIntensity[i] || 0) + 1;
   });
 
   function renderBreakdown(obj) {
@@ -366,6 +418,63 @@ function renderStatsPage() {
   }
   statusList.innerHTML = renderBreakdown(byStatus);
   domainList.innerHTML = renderBreakdown(byDomain);
+  renderPieChart(statusChart, byStatus, {
+    'Новая': '#4f8dff',
+    'Активная': '#39d98a',
+    'Иссякает': '#f3bf4a',
+    'Пересохла': '#ff6b6b',
+    'Неизвестно': '#8f9aae',
+  });
+  renderPieChart(intensityChart, byIntensity, {
+    'Слабая (капёж)': '#8bc8ff',
+    'Умеренная': '#39d98a',
+    'Сильная (поток)': '#f3bf4a',
+    'Очень сильная': '#ff8a4a',
+    'Не указана': '#8f9aae',
+  });
+}
+
+function renderPieChart(container, statsObj, palette) {
+  if (!container) return;
+  var keys = Object.keys(statsObj).filter(function(k) { return statsObj[k] > 0; });
+  var total = keys.reduce(function(acc, k) { return acc + statsObj[k]; }, 0);
+  if (!total) {
+    container.innerHTML = '<p class="form-hint">Нет данных по выбранному фильтру.</p>';
+    return;
+  }
+  var cx = 90, cy = 90, r = 70;
+  var offset = 0;
+  var circles = '';
+  keys.forEach(function(k) {
+    var val = statsObj[k];
+    var frac = val / total;
+    var len = frac * (2 * Math.PI * r);
+    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
+    circles += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
+      '" fill="none" stroke="' + color + '" stroke-width="22" stroke-linecap="butt" ' +
+      'stroke-dasharray="' + len.toFixed(2) + ' ' + (2 * Math.PI * r).toFixed(2) + '" ' +
+      'stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 90 90)"></circle>';
+    offset += len;
+  });
+  var legend = '<div class="pie-legend">';
+  keys.forEach(function(k) {
+    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
+    legend += '<div class="pie-legend-row">' +
+      '<span class="pie-legend-name"><span class="pie-legend-dot" style="background:' + color + '"></span>' + k + '</span>' +
+      '<b>' + statsObj[k] + '</b></div>';
+  });
+  legend += '</div>';
+
+  container.innerHTML =
+    '<div class="pie-chart-wrap">' +
+      '<svg class="pie-chart-svg" viewBox="0 0 180 180" aria-label="Круговая диаграмма">' +
+        '<circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="22"></circle>' +
+        circles +
+        '<text x="90" y="88" text-anchor="middle" fill="#ffd08b" style="font-size:22px;font-weight:800">' + total + '</text>' +
+        '<text x="90" y="106" text-anchor="middle" fill="#95a0af" style="font-size:11px">точек</text>' +
+      '</svg>' +
+      legend +
+    '</div>';
 }
 
 function renderWorkerManageList() {

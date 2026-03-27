@@ -26,7 +26,7 @@
       <button class="tab-btn" data-tab="settings"><span class="tab-icon">◉</span> Настройки</button>
       <button class="tab-btn" data-tab="workers"><span class="tab-icon">◎</span> Сотрудники</button>
       <button class="tab-btn" data-tab="diag"><span class="tab-icon">◌</span> Диаг.</button>
-      <button class="tab-btn" data-tab="stats"><span class="tab-icon">◍</span> Статистика</button>
+      <button class="tab-btn" data-tab="stats"><span class="tab-icon">◍</span> Аналитика</button>
     </nav>
   </header>
 
@@ -278,10 +278,10 @@
     </div>
   </div>
 
-  <!-- Статистика -->
+  <!-- Аналитика -->
   <div class="page" id="page-stats">
     <div class="card">
-      <div class="card-title">Фильтры статистики</div>
+      <div class="card-title">Фильтры аналитики</div>
       <div class="form-row">
         <div class="form-group">
           <label class="form-label" for="stats-week">Неделя</label>
@@ -295,6 +295,17 @@
     </div>
 
     <div class="stats-grid" id="stats-grid"></div>
+
+    <div class="stats-charts-grid">
+      <div class="card">
+        <div class="card-title">Диаграмма по статусам</div>
+        <div id="stats-status-chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Диаграмма по интенсивности</div>
+        <div id="stats-intensity-chart"></div>
+      </div>
+    </div>
 
     <div class="card">
       <div class="card-title">Разбивка по статусам</div>

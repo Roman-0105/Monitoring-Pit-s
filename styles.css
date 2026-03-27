@@ -301,6 +301,9 @@ body {
   width: 100%;
   height: 36px;
 }
+.filter-select--full-mobile {
+  min-width: 180px;
+}
 
 .point-card {
   border: 1px solid var(--line);
@@ -614,6 +617,46 @@ body {
   gap: 10px;
   margin-bottom: 14px;
 }
+.stats-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pie-chart-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pie-chart-svg {
+  width: 170px;
+  height: 170px;
+}
+.pie-legend {
+  display: grid;
+  gap: 6px;
+  min-width: 170px;
+}
+.pie-legend-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--txt-2);
+}
+.pie-legend-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.pie-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.25);
+}
 .stats-kpi {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -728,7 +771,9 @@ body {
   .brand-block { min-width: auto; padding: 0 12px; }
   .page { padding: 12px; }
   .form-row { flex-direction: column; }
+  .filter-select--full-mobile { width: 100%; }
   .map-legend-panel { display: none; }
   .map-point-card { width: calc(100% - 20px); left: 10px; top: 10px; max-width: none; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
+  .stats-charts-grid { grid-template-columns: 1fr; }
 }
