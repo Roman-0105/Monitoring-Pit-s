@@ -90,6 +90,9 @@ document.addEventListener('DOMContentLoaded', function() {
   Promise.all([Workers.load(), Points.load(), Schemes.load()]).then(function() {
     renderWorkers();
     renderPointsList();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     Diagnostics.clearError();
     Diagnostics.set('queueSize', Storage.getQueue().length);
     hideLoader();
@@ -97,6 +100,9 @@ document.addEventListener('DOMContentLoaded', function() {
     Diagnostics.setError('sync', 'Начальная загрузка: ' + err.message);
     renderWorkers();
     renderPointsList();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     hideLoader();
   });
 
@@ -114,6 +120,9 @@ function syncAll() {
   }).then(function() {
     renderPointsList();
     renderWorkers();
+    initMapFilters();
+    initStatsFilters();
+    renderStatsPage();
     Diagnostics.clearError();
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
@@ -139,9 +148,10 @@ function switchTab(name) {
   });
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
-  if (name === 'map')    { _mapSchemeImg = null; renderMap(); initMapLegend(); updateMapLegendPoints(); }
+  if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
   if (name === 'settings') renderSettingsSchemes();
   if (name === 'workers') renderWorkerManageList();
+  if (name === 'stats') renderStatsPage();
 }
 
 // ── Лоадер ───────────────────────────────────────────────
@@ -273,6 +283,89 @@ function updateWorkerSelects() {
     });
     if (cur) sel.value = cur;
   });
+}
+
+function initStatsFilters() {
+  var weekSel = document.getElementById('stats-week');
+  var workerSel = document.getElementById('stats-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _statsFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) {
+    if (p.worker) workerSet[p.worker] = true;
+  });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _statsFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _statsFilters.week = weekSel.value || 'all';
+      renderStatsPage();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _statsFilters.worker = workerSel.value || 'all';
+      renderStatsPage();
+    });
+  }
+}
+
+function renderStatsPage() {
+  initStatsFilters();
+  var points = getFilteredPoints(_statsFilters);
+  var grid = document.getElementById('stats-grid');
+  var statusList = document.getElementById('stats-status-list');
+  var domainList = document.getElementById('stats-domain-list');
+  if (!grid || !statusList || !domainList) return;
+
+  var totalFlow = 0;
+  var withFlow = 0;
+  var withPhoto = 0;
+  var active = 0;
+  points.forEach(function(p) {
+    var flow = parseFloat(p.flowRate);
+    if (!isNaN(flow)) { totalFlow += flow; withFlow++; }
+    if (p.photoUrls && p.photoUrls[0]) withPhoto++;
+    if (p.status === 'Активная') active++;
+  });
+
+  grid.innerHTML =
+    '<div class="stats-kpi"><div class="stats-kpi__label">Всего точек</div><div class="stats-kpi__value">' + points.length + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Активные</div><div class="stats-kpi__value">' + active + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">С фото</div><div class="stats-kpi__value">' + withPhoto + '</div></div>' +
+    '<div class="stats-kpi"><div class="stats-kpi__label">Средний дебит, л/с</div><div class="stats-kpi__value">' +
+      (withFlow ? (totalFlow / withFlow).toFixed(2) : '—') + '</div></div>';
+
+  var byStatus = {};
+  var byDomain = {};
+  points.forEach(function(p) {
+    var s = p.status || 'Неизвестно';
+    byStatus[s] = (byStatus[s] || 0) + 1;
+    var d = p.domain || '—';
+    byDomain[d] = (byDomain[d] || 0) + 1;
+  });
+
+  function renderBreakdown(obj) {
+    var keys = Object.keys(obj).sort(function(a, b) { return obj[b] - obj[a]; });
+    if (!keys.length) return '<p class="form-hint">Нет данных по фильтру.</p>';
+    var html = '<div class="stats-list">';
+    keys.forEach(function(k) {
+      html += '<div class="stats-list-row"><span>' + k + '</span><b>' + obj[k] + '</b></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+  statusList.innerHTML = renderBreakdown(byStatus);
+  domainList.innerHTML = renderBreakdown(byDomain);
 }
 
 function renderWorkerManageList() {
@@ -659,15 +752,13 @@ var _mapAddMode    = false;  // режим добавления точки
 var _mapDragging   = false;
 var _mapDragStartX = 0;
 var _mapDragStartY = 0;
+var _mapFilters = { week: 'all', worker: 'all' };
+var _statsFilters = { week: 'all', worker: 'all' };
 
 function renderMap() {
   var canvas   = document.getElementById('map-canvas');
   var noScheme = document.getElementById('map-no-scheme');
-  var weekLabel = document.getElementById('map-week-label');
   if (!canvas) return;
-
-  var weekKey = Schemes.currentWeekKey();
-  if (weekLabel) weekLabel.textContent = Schemes.formatWeekKey(weekKey);
 
   var scheme = Schemes.getCurrent();
   if (!scheme) {
@@ -703,12 +794,99 @@ function renderMap() {
       _mapOffX = 0;
       _mapOffY = 0;
       setupMapCanvas(canvas);
+      initMapFilters();
       redrawMap();
       initMapInteraction(canvas);
       initMapZoomButtons();
     };
     img.src = dataUrl;
   });
+}
+
+function getWeekKeyFromDate(iso) {
+  if (!iso) return null;
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  var dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  var dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  var yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  var weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return dt.getUTCFullYear() + '-W' + (weekNo < 10 ? '0' + weekNo : weekNo);
+}
+
+function getAllWeekKeys() {
+  var set = {};
+  Points.getList().forEach(function(p) {
+    var wk = getWeekKeyFromDate(p.createdAt);
+    if (wk) set[wk] = true;
+  });
+  Schemes.getList().forEach(function(s) {
+    if (s.weekKey) set[s.weekKey] = true;
+  });
+  return Object.keys(set).sort().reverse();
+}
+
+function fillSelectOptions(selectEl, options, selectedValue, fallbackLabel) {
+  if (!selectEl) return;
+  var html = '<option value="all">' + (fallbackLabel || 'Все') + '</option>';
+  options.forEach(function(opt) {
+    html += '<option value="' + escAttr(opt.value) + '">' + opt.label + '</option>';
+  });
+  selectEl.innerHTML = html;
+  selectEl.value = selectedValue || 'all';
+}
+
+function initMapFilters() {
+  var weekSel = document.getElementById('map-filter-week');
+  var workerSel = document.getElementById('map-filter-worker');
+  if (!weekSel || !workerSel) return;
+
+  var weeks = getAllWeekKeys().map(function(w) {
+    return { value: w, label: Schemes.formatWeekKey(w) };
+  });
+  fillSelectOptions(weekSel, weeks, _mapFilters.week, 'Все недели');
+
+  var workerSet = {};
+  Points.getList().forEach(function(p) {
+    if (p.worker) workerSet[p.worker] = true;
+  });
+  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
+  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
+  fillSelectOptions(workerSel, workers, _mapFilters.worker, 'Все сотрудники');
+
+  if (!weekSel._bound) {
+    weekSel._bound = true;
+    weekSel.addEventListener('change', function() {
+      _mapFilters.week = weekSel.value || 'all';
+      redrawMap();
+      updateMapLegendPoints();
+    });
+  }
+  if (!workerSel._bound) {
+    workerSel._bound = true;
+    workerSel.addEventListener('change', function() {
+      _mapFilters.worker = workerSel.value || 'all';
+      redrawMap();
+      updateMapLegendPoints();
+    });
+  }
+}
+
+function getFilteredPoints(filterState) {
+  var state = filterState || { week: 'all', worker: 'all' };
+  return Points.getList().filter(function(p) {
+    if (state.worker && state.worker !== 'all' && (p.worker || '') !== state.worker) return false;
+    if (state.week && state.week !== 'all') {
+      var pWeek = getWeekKeyFromDate(p.createdAt);
+      if (pWeek !== state.week) return false;
+    }
+    return true;
+  });
+}
+
+function getFilteredPointsForMap() {
+  return getFilteredPoints(_mapFilters);
 }
 
 function setupMapCanvas(canvas) {
@@ -735,7 +913,7 @@ function redrawMap() {
     Domens.draw(ctx, _mapSchemeImg.width, _mapSchemeImg.height);
   }
   if (typeof MapModule !== 'undefined') {
-    MapModule.drawPoints(ctx, Points.getList(), _mapSchemeImg.width, _mapSchemeImg.height);
+    MapModule.drawPoints(ctx, getFilteredPointsForMap(), _mapSchemeImg.width, _mapSchemeImg.height);
   }
   ctx.restore();
   // Обновляем масштаб в статус-баре
@@ -857,7 +1035,7 @@ function initMapInteraction(canvas) {
     if (!_mapAddMode && _mapSchemeImg && typeof MapModule !== 'undefined') {
       var imgX = (cx - _mapOffX) / _mapScale;
       var imgY = (cy - _mapOffY) / _mapScale;
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
                 _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
@@ -887,7 +1065,7 @@ function initMapInteraction(canvas) {
     var imgX = (cx - _mapOffX) / _mapScale;
     var imgY = (cy - _mapOffY) / _mapScale;
     if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
                 _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
       if (p) {
         showMapTooltip(p, e.clientX, e.clientY);
@@ -918,7 +1096,7 @@ function initMapInteraction(canvas) {
     }
 
     if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, Points.getList(),
+      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
                 _mapSchemeImg.width, _mapSchemeImg.height, 1, 0, 0);
       if (p) showMapPointCard(p);
     }
@@ -961,26 +1139,31 @@ function initMapLegend() {
 function updateMapLegendPoints() {
   var container = document.getElementById('map-legend-points');
   if (!container) return;
-  var points = Points.getList();
+  var points = getFilteredPointsForMap();
   var byStatus = {};
   points.forEach(function(p) {
     var s = p.status || 'Неизвестно';
     byStatus[s] = (byStatus[s] || 0) + 1;
   });
-  var html = 'Всего точек: <b>' + points.length + '</b><br><br>';
-  Object.keys(byStatus).forEach(function(s) {
-    html += s + ': ' + byStatus[s] + '<br>';
+  var html = '<div style="margin-bottom:8px">Показано точек: <b>' + points.length + '</b></div>';
+  html += '<div style="margin-bottom:8px;font-size:10px;color:var(--txt-3)">Фильтр: ' +
+          (_mapFilters.week === 'all' ? 'все недели' : Schemes.formatWeekKey(_mapFilters.week)) +
+          ' • ' + (_mapFilters.worker === 'all' ? 'все сотрудники' : _mapFilters.worker) + '</div>';
+  html += '<div style="display:grid;gap:4px">';
+  ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
+    html += '<div style="display:flex;justify-content:space-between"><span>' + s + '</span><b>' + (byStatus[s] || 0) + '</b></div>';
   });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
-    html += '<br><b>По доменам:</b><br>';
+    html += '<br><b>По доменам</b><br>';
     var byDomen = {};
     points.forEach(function(p) {
       var d = p.domain || '—';
       byDomen[d] = (byDomen[d] || 0) + 1;
     });
-    Object.keys(byDomen).sort().forEach(function(d) {
-      html += d + ': ' + byDomen[d] + '<br>';
+    Object.keys(byDomen).sort(function(a, b) { return byDomen[b] - byDomen[a]; }).forEach(function(d) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + d + '</span><b>' + byDomen[d] + '</b></div>';
     });
   }
   container.innerHTML = html;
