@@ -995,14 +995,6 @@ function openAddPointModal(xLocal, yLocal) {
     .forEach(function(id) { setField(id, ''); });
   setField('e-status', 'Новая');
   updateWorkerSelects();
-  // Автоопределяем домен по координатам клика
-  if (typeof Domens !== 'undefined') {
-    var autoDomen = Domens.findDomenAt(xLocal, yLocal);
-    setField('e-domain', autoDomen || '');
-  } else {
-    setField('e-domain', '');
-  }
-
   // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
   //   xLocal = 45850..47350 (горизонталь, растёт слева направо) → поле X
   //   yLocal = 15800..17350 (вертикаль,  растёт сверху вниз)    → поле Y
@@ -1030,6 +1022,16 @@ function openAddPointModal(xLocal, yLocal) {
   document.getElementById('edit-modal-title').textContent = 'Новая точка на карте';
   var submitBtn = document.querySelector('#edit-form [type=submit]');
   if (submitBtn) submitBtn.textContent = 'Сохранить точку';
+
+  // Автоопределяем домен ПОСЛЕДНИМ — после всех инициализаций
+  (function() {
+    var domainEl = document.getElementById('e-domain');
+    if (!domainEl || typeof Domens === 'undefined') { return; }
+    var autoDomen = Domens.findDomenAt(xLocal, yLocal);
+    if (autoDomen) {
+      domainEl.value = autoDomen;
+    }
+  })();
 
   document.getElementById('edit-modal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
