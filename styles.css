@@ -813,6 +813,13 @@ html, body {
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
+  padding: 12px;
+}
+#map-canvas {
+  border: 2px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+  display: block;
 }
 
 /* ── Legend panel ────────────────────────────────────── */
@@ -897,10 +904,10 @@ html, body {
 /* ── Map point card (полная) ─────────────────────────── */
 .map-point-card {
   position: absolute;
-  bottom: 28px;
-  right: 8px;
+  top: 8px;
+  left: 8px;
   width: 280px;
-  max-height: 70vh;
+  max-height: calc(100% - 48px);
   overflow-y: auto;
   background: var(--white);
   border-radius: var(--radius);
@@ -1009,13 +1016,18 @@ html, body {
 }
 .point-card__photo-wrap {
   width: 100%;
-  max-height: 220px;
+  height: 160px;
   overflow: hidden;
   background: var(--gray-100);
+  position: relative;
 }
 .card-photo-thumb {
+  position: absolute;
+  inset: 0;
   width: 100%;
+  height: 100%;
   object-fit: cover;
+  object-position: center;
   display: block;
   cursor: zoom-in;
 }
