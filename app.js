@@ -15,6 +15,40 @@ var AppState = {
 };
 
 // ── Инициализация ─────────────────────────────────────────
+// ── Lightbox для фото ────────────────────────────────────
+function initPhotoLightbox() {
+  var lb = document.createElement('div');
+  lb.id = 'photo-lightbox';
+  lb.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;' +
+    'align-items:center;justify-content:center;cursor:zoom-out';
+  lb.innerHTML = '<img id="lb-img" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:4px">' +
+    '<button id="lb-close" style="position:absolute;top:16px;right:20px;background:none;border:none;' +
+    'color:#fff;font-size:32px;cursor:pointer;line-height:1">✕</button>';
+  document.body.appendChild(lb);
+
+  function openLb(src) {
+    document.getElementById('lb-img').src = src;
+    lb.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLb() {
+    lb.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+
+  lb.addEventListener('click', function(e) { if (e.target === lb) closeLb(); });
+  document.getElementById('lb-close').addEventListener('click', closeLb);
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLb(); });
+
+  // Делегируем клики по фото в карточках
+  document.addEventListener('click', function(e) {
+    var img = e.target;
+    if (img && (img.classList.contains('card-photo-thumb') || img.classList.contains('mpc-photo'))) {
+      if (img.src && img.src !== window.location.href) openLb(img.src);
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
   showLoader('Загрузка...');
 
@@ -25,6 +59,7 @@ document.addEventListener('DOMContentLoaded', function() {
   if (suEl)  suEl.textContent  = (APP_CONFIG.SCRIPT_URL && APP_CONFIG.SCRIPT_URL.indexOf('ВСТАВЬ') < 0) ? '✅ задан' : '❌ не задан';
 
   initTabs();
+  initPhotoLightbox();
   initAddForm();
   initEditModal();
   initDiagButtons();
@@ -120,39 +155,54 @@ function renderPointsList() {
   for (var i = 0; i < points.length; i++) {
     var p = points[i];
     var pending     = p.syncStatus !== 'synced';
-    var statusClass = (p.status || '').toLowerCase().replace(/\s/g, '-');
-    var hasPhoto    = p.photoUrls && p.photoUrls[0];
+    var statusColors = (typeof MapModule !== 'undefined') ? MapModule.STATUS_COLORS : {};
+    var statusColor  = statusColors[p.status] || '#aaa';
+    var hasPhoto     = p.photoUrls && p.photoUrls[0];
+
     html += '<div class="point-card' + (pending ? ' point-pending' : '') + '">';
+
+    // Заголовок
     html += '<div class="point-card__header">';
     html += '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>';
-    html += '<span class="point-card__status status-' + statusClass + '">' + (p.status || '') + '</span>';
+    html += '<span class="point-card__status" style="background:' + statusColor + '">' + (p.status || '') + '</span>';
     if (pending) html += '<span class="sync-badge">⏳</span>';
     html += '</div>';
+
+    // Фото
     if (hasPhoto) {
       html += '<div class="point-card__photo-wrap">';
-      html += '<img class="card-photo-thumb" data-url="' + p.photoUrls[0] + '" src="" alt="фото">';
+      html += '<img class="card-photo-thumb" data-url="' + escAttr(p.photoUrls[0]) + '" src="" alt="фото">';
       html += '</div>';
     }
+
+    // Основные поля
     html += '<div class="point-card__body">';
-    html += '<div>👤 ' + (p.worker || '—') + '</div>';
-    html += '<div>📅 ' + formatDate(p.createdAt) + '</div>';
-    if (p.intensity) {
-      html += '<div>💧 ' + p.intensity;
-      if (p.flowRate != null) html += ' · ' + p.flowRate + ' л/с';
+    html += '<div class="pc-row"><span class="pc-lbl">👤</span><span>' + (p.worker || '—') + '</span></div>';
+    html += '<div class="pc-row"><span class="pc-lbl">📅</span><span>' + formatDate(p.createdAt) + '</span></div>';
+    if (p.domain || p.wall) {
+      html += '<div class="pc-row">';
+      if (p.domain) html += '<span class="pc-tag pc-domain">' + p.domain + '</span>';
+      if (p.wall)   html += '<span class="pc-tag pc-wall">' + p.wall + '</span>';
       html += '</div>';
     }
-    if (p.domain)  html += '<div>📍 ' + p.domain + '</div>';
-    if (p.xLocal != null || p.yLocal != null) {
-      var xStr = p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—';
-      var yStr = p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—';
-      html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + xStr + '  Y: ' + yStr + '</div>';
+    if (p.intensity || p.flowRate != null) {
+      html += '<div class="pc-row"><span class="pc-lbl">💧</span><span>';
+      if (p.intensity) html += p.intensity;
+      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + p.flowRate + ' л/с';
+      html += '</span></div>';
+    }
+    if (p.waterColor) html += '<div class="pc-row"><span class="pc-lbl">🎨</span><span>' + p.waterColor + '</span></div>';
+    if (p.xLocal != null) {
+      html += '<div class="pc-row pc-coords"><span>X: ' + Number(p.xLocal).toFixed(2) +
+              '  Y: ' + Number(p.yLocal).toFixed(2) + '</span></div>';
     }
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
-
     html += '</div>';
+
+    // Действия
     html += '<div class="point-card__actions">';
     html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
-    html += '<button class="btn btn-sm btn-danger btn-del"  data-pid="' + p.id + '">🗑 Удалить</button>';
+    html += '<button class="btn btn-sm btn-danger  btn-del"  data-pid="' + p.id + '">🗑 Удалить</button>';
     html += '</div></div>';
   }
   container.innerHTML = html;
@@ -163,14 +213,13 @@ function renderPointsList() {
   container.querySelectorAll('.btn-del').forEach(function(btn) {
     btn.addEventListener('click', function() { confirmDelete(this.dataset.pid); });
   });
-  // Загружаем фото через прокси
   container.querySelectorAll('.card-photo-thumb').forEach(function(img) {
     Photos.setImageSrc(img, img.dataset.url);
   });
   updateMapLegendPoints();
 }
 
-// ── Сотрудники ────────────────────────────────────────────
+
 function renderWorkers() {
   var grid = document.getElementById('worker-grid');
   if (grid) {
@@ -1084,41 +1133,80 @@ function showMapPointCard(p) {
   var existing = document.getElementById('map-point-card');
   if (existing) existing.remove();
 
+  // Статусный цвет
+  var statusColors = (typeof MapModule !== 'undefined') ? MapModule.STATUS_COLORS : {};
+  var statusColor  = statusColors[p.status] || 'var(--gray-400)';
+
+  // Строим HTML карточки
+  var hasPhoto = p.photoUrls && p.photoUrls[0];
+  var html =
+    '<div class="mpc-header">' +
+      '<div class="mpc-title">' +
+        '<span class="mpc-num">#' + (p.pointNumber || '—') + '</span>' +
+        '<span class="mpc-status" style="background:' + statusColor + '">' + (p.status || '') + '</span>' +
+      '</div>' +
+      '<button class="mpc-close" id="map-card-close">✕</button>' +
+    '</div>';
+
+  // Фото
+  if (hasPhoto) {
+    html += '<div class="mpc-photo-wrap"><img class="mpc-photo" id="mpc-photo-img" src="" alt="фото"></div>';
+  }
+
+  html += '<div class="mpc-body">';
+  html += '<div class="mpc-row"><span class="mpc-label">Сотрудник</span><span>' + (p.worker || '—') + '</span></div>';
+  html += '<div class="mpc-row"><span class="mpc-label">Дата</span><span>' + formatDate(p.createdAt) + '</span></div>';
+  if (p.domain)     html += '<div class="mpc-row"><span class="mpc-label">Домен</span><span>' + p.domain + '</span></div>';
+  if (p.wall)       html += '<div class="mpc-row"><span class="mpc-label">Борт</span><span>' + p.wall + '</span></div>';
+  if (p.intensity)  html += '<div class="mpc-row"><span class="mpc-label">Интенсивность</span><span>' + p.intensity + '</span></div>';
+  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + p.flowRate + ' л/с</span></div>';
+  if (p.waterColor) html += '<div class="mpc-row"><span class="mpc-label">Цвет воды</span><span>' + p.waterColor + '</span></div>';
+  if (p.xLocal != null) {
+    html += '<div class="mpc-row"><span class="mpc-label">X / Y</span><span>' +
+      Number(p.xLocal).toFixed(2) + ' / ' + Number(p.yLocal).toFixed(2) + '</span></div>';
+  }
+  if (p.comment)    html += '<div class="mpc-comment">' + p.comment + '</div>';
+  html += '</div>';
+
+  html +=
+    '<div class="mpc-actions">' +
+      '<button class="btn btn-sm btn-outline mpc-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
+      '<button class="btn btn-sm btn-danger  mpc-del"  data-pid="' + p.id + '">🗑 Удалить</button>' +
+    '</div>';
+
   var card = document.createElement('div');
   card.id = 'map-point-card';
   card.className = 'map-point-card';
-  card.innerHTML =
-    '<div class="map-point-card__header">' +
-    '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>' +
-    '<button class="modal-close" id="map-card-close">✕</button>' +
-    '</div>' +
-    '<div class="map-point-card__body">' +
-    '<div>👤 ' + (p.worker || '—') + '</div>' +
-    '<div>📅 ' + formatDate(p.createdAt) + '</div>' +
-    (p.status    ? '<div>📌 ' + p.status    + '</div>' : '') +
-    (p.intensity ? '<div>💧 ' + p.intensity + (p.flowRate != null ? ' · ' + p.flowRate + ' л/с' : '') + '</div>' : '') +
-    (p.waterColor ? '<div>🎨 ' + p.waterColor + '</div>' : '') +
-    (p.wall       ? '<div>🏔 ' + p.wall      + '</div>' : '') +
-    (p.domain     ? '<div>📍 ' + p.domain    + '</div>' : '') +
-    (p.xLocal != null || p.yLocal != null
-      ? '<div style="font-size:11px;color:var(--gray-600)">X: ' +
-        (p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—') + '  Y: ' +
-        (p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—') + '</div>'
-      : '') +
-    (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
-    '</div>' +
-    '<div class="map-point-card__actions">' +
-    '<button class="btn btn-sm btn-outline map-card-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
-    '</div>';
+  card.innerHTML = html;
 
   document.getElementById('page-map').appendChild(card);
 
-  document.getElementById('map-card-close').addEventListener('click', function() {
-    card.remove();
-  });
-  card.querySelector('.map-card-edit').addEventListener('click', function() {
+  // Загружаем фото из кэша
+  if (hasPhoto) {
+    var imgEl = document.getElementById('mpc-photo-img');
+    if (imgEl) Photos.setImageSrc(imgEl, p.photoUrls[0]);
+  }
+
+  document.getElementById('map-card-close').addEventListener('click', function() { card.remove(); });
+  card.querySelector('.mpc-edit').addEventListener('click', function() {
     card.remove();
     openEditModal(this.dataset.pid);
+  });
+  card.querySelector('.mpc-del').addEventListener('click', function() {
+    var pid = this.dataset.pid;
+    if (!confirm('Удалить точку #' + (p.pointNumber || pid) + '?')) return;
+    card.remove();
+    AppState.syncing = true;
+    Points.remove(pid).then(function() {
+      return Points.load();
+    }).then(function() {
+      renderPointsList();
+      if (_mapSchemeImg) redrawMap();
+      AppState.syncing = false;
+    }).catch(function(err) {
+      alert('Ошибка удаления: ' + err.message);
+      AppState.syncing = false;
+    });
   });
 }
 
