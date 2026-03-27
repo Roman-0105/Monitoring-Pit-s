@@ -143,10 +143,9 @@ function renderPointsList() {
     }
     if (p.domain)  html += '<div>📍 ' + p.domain + '</div>';
     if (p.xLocal != null || p.yLocal != null) {
-      var dXY = (typeof MapModule !== 'undefined')
-        ? MapModule.toDisplay(p.xLocal || 0, p.yLocal || 0)
-        : { displayX: p.yLocal || 0, displayY: p.xLocal || 0 };
-      html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + dXY.displayX.toFixed(4) + '  Y: ' + dXY.displayY.toFixed(4) + '</div>';
+      var xStr = p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—';
+      var yStr = p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—';
+      html += '<div style="font-size:11px;color:var(--gray-600)">X: ' + xStr + '  Y: ' + yStr + '</div>';
     }
     if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
 
@@ -376,11 +375,8 @@ function openEditModal(id) {
   setField('e-lon',       p.lon      != null ? p.lon      : '');
   // X↔Y переставлены для отображения
   if (p.xLocal != null || p.yLocal != null) {
-    var editDisp = (typeof MapModule !== 'undefined')
-      ? MapModule.toDisplay(p.xLocal || 0, p.yLocal || 0)
-      : { displayX: p.yLocal || 0, displayY: p.xLocal || 0 };
-    setField('e-xlocal', editDisp.displayX.toFixed(4));
-    setField('e-ylocal', editDisp.displayY.toFixed(4));
+    setField('e-xlocal', p.xLocal != null ? Number(p.xLocal).toFixed(4) : '');
+    setField('e-ylocal', p.yLocal != null ? Number(p.yLocal).toFixed(4) : '');
   } else {
     setField('e-xlocal', '');
     setField('e-ylocal', '');
@@ -463,7 +459,7 @@ function saveEditedPoint() {
   // Если есть GPS но нет xLocal — вычисляем
   if ((data.xLocal == null || data.yLocal == null) && data.lat && data.lon &&
       typeof MapModule !== 'undefined') {
-    var sk = MapModule.wgs84ToSK42(data.lat, data.lon);
+    var sk = MapModule.wgs84ToXY(data.lat, data.lon);
     data.xLocal = sk.x; data.yLocal = sk.y;
   }
 
@@ -772,13 +768,12 @@ function initMapInteraction(canvas) {
       var imgY2 = (cy - _mapOffY) / _mapScale;
       if (imgX2 >= 0 && imgX2 <= _mapSchemeImg.width &&
           imgY2 >= 0 && imgY2 <= _mapSchemeImg.height) {
-        var loc = MapModule.pixelToLocal(imgX2, imgY2, _mapSchemeImg.width, _mapSchemeImg.height);
-        var wgs = MapModule.sk42ToWgs84(loc.x, loc.y);
+        var loc = MapModule.pixelToXY(imgX2, imgY2, _mapSchemeImg.width, _mapSchemeImg.height);
+        var wgs = MapModule.xyToWgs84(loc.x, loc.y);
         var sbEl = document.getElementById('sb-coords');
         if (sbEl) {
-          var sbDisp = MapModule.toDisplay(loc.x, loc.y);
           sbEl.textContent =
-            'X: ' + sbDisp.displayX.toFixed(4) + '  Y: ' + sbDisp.displayY.toFixed(4) +
+            'X: ' + loc.x.toFixed(4) + '  Y: ' + loc.y.toFixed(4) +
             '  |  ' + wgs.lat.toFixed(5) + '°N  ' + wgs.lon.toFixed(5) + '°E';
         }
       }
@@ -843,7 +838,7 @@ function initMapInteraction(canvas) {
 
     if (_mapAddMode && typeof MapModule !== 'undefined') {
       // Вычисляем локальные координаты из пикселей
-      var local = MapModule.pixelToLocal(imgX, imgY, _mapSchemeImg.width, _mapSchemeImg.height);
+      var local = MapModule.pixelToXY(imgX, imgY, _mapSchemeImg.width, _mapSchemeImg.height);
       openAddPointModal(local.x, local.y);
       return;
     }
@@ -971,11 +966,10 @@ function openAddPointModal(xLocal, yLocal) {
   // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
   //   xLocal = 45850..47350 (горизонталь, растёт слева направо) → поле X
   //   yLocal = 15800..17350 (вертикаль,  растёт сверху вниз)    → поле Y
-  // toDisplay НЕ применяем — он нужен только для GPS-сценария
   if (typeof MapModule !== 'undefined') {
     setField('e-xlocal', xLocal.toFixed(4));
     setField('e-ylocal', yLocal.toFixed(4));
-    var wgs = MapModule.sk42ToWgs84(xLocal, yLocal);
+    var wgs = MapModule.xyToWgs84(xLocal, yLocal);
     if (wgs && wgs.lat) {
       setField('e-lat', wgs.lat.toFixed(7));
       setField('e-lon', wgs.lon.toFixed(7));
@@ -1065,13 +1059,10 @@ function showMapPointCard(p) {
     (p.wall       ? '<div>🏔 ' + p.wall      + '</div>' : '') +
     (p.domain     ? '<div>📍 ' + p.domain    + '</div>' : '') +
     (p.xLocal != null || p.yLocal != null
-      ? (function() {
-          var dXY = (typeof MapModule !== 'undefined')
-            ? MapModule.toDisplay(p.xLocal || 0, p.yLocal || 0)
-            : { displayX: p.yLocal || 0, displayY: p.xLocal || 0 };
-          return '<div style="font-size:11px;color:var(--gray-600)">X: ' +
-            dXY.displayX.toFixed(4) + '  Y: ' + dXY.displayY.toFixed(4) + '</div>';
-        })() : '') +
+      ? '<div style="font-size:11px;color:var(--gray-600)">X: ' +
+        (p.xLocal != null ? Number(p.xLocal).toFixed(4) : '—') + '  Y: ' +
+        (p.yLocal != null ? Number(p.yLocal).toFixed(4) : '—') + '</div>'
+      : '') +
     (p.comment    ? '<div class="point-card__comment">' + p.comment + '</div>' : '') +
     '</div>' +
     '<div class="map-point-card__actions">' +
@@ -1188,12 +1179,11 @@ function getGPSForForm(prefix) {
     setField(prefix + '-lon', lon.toFixed(7));
     // Пересчитываем в локальные (X↔Y переставлены для отображения)
     if (typeof MapModule !== 'undefined') {
-      var sk  = MapModule.wgs84ToSK42(lat, lon);
-      var disp = MapModule.toDisplay(sk.x, sk.y);
-      setField(prefix + '-xlocal', disp.displayX.toFixed(4));  // поле "X" = displayX = yLocal
-      setField(prefix + '-ylocal', disp.displayY.toFixed(4));  // поле "Y" = displayY = xLocal
+      var sk = MapModule.wgs84ToXY(lat, lon);
+      setField(prefix + '-xlocal', sk.x.toFixed(4));
+      setField(prefix + '-ylocal', sk.y.toFixed(4));
       var info = document.getElementById(prefix + '-map-coord-info');
-      if (info) info.textContent = 'X: ' + disp.displayX.toFixed(4) + '  Y: ' + disp.displayY.toFixed(4) + ' (из GPS)';
+      if (info) info.textContent = 'X: ' + sk.x.toFixed(4) + '  Y: ' + sk.y.toFixed(4) + ' (из GPS)';
     }
     if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
   }, function(err) {
@@ -1207,12 +1197,11 @@ function recalcLocalCoords(prefix) {
   var lat = parseFloatOrNull(getField(prefix + '-lat'));
   var lon = parseFloatOrNull(getField(prefix + '-lon'));
   if (lat && lon && typeof MapModule !== 'undefined') {
-    var sk   = MapModule.wgs84ToSK42(lat, lon);
-    var disp = MapModule.toDisplay(sk.x, sk.y);
-    setField(prefix + '-xlocal', disp.displayX.toFixed(4));
-    setField(prefix + '-ylocal', disp.displayY.toFixed(4));
+    var sk = MapModule.wgs84ToXY(lat, lon);
+    setField(prefix + '-xlocal', sk.x.toFixed(4));
+    setField(prefix + '-ylocal', sk.y.toFixed(4));
     var info = document.getElementById(prefix + '-map-coord-info');
-    if (info) info.textContent = 'X: ' + disp.displayX.toFixed(4) + '  Y: ' + disp.displayY.toFixed(4);
+    if (info) info.textContent = 'X: ' + sk.x.toFixed(4) + '  Y: ' + sk.y.toFixed(4);
   }
 }
 
@@ -1223,10 +1212,8 @@ function readFormFields(prefix) {
     worker:      getField(prefix + '-worker'),
     lat:         parseFloatOrNull(getField(prefix + '-lat')),
     lon:         parseFloatOrNull(getField(prefix + '-lon')),
-    // Поля xlocal/ylocal в форме: xlocal=displayX=yLocal, ylocal=displayY=xLocal
-    // Восстанавливаем правильный порядок для хранения
-    xLocal:      parseFloatOrNull(getField(prefix + '-ylocal')),  // displayY → xLocal
-    yLocal:      parseFloatOrNull(getField(prefix + '-xlocal')),  // displayX → yLocal
+    xLocal:      parseFloatOrNull(getField(prefix + '-xlocal')),
+    yLocal:      parseFloatOrNull(getField(prefix + '-ylocal')),
     intensity:   getField(prefix + '-intensity'),
     flowRate:    parseFloatOrNull(getField(prefix + '-flowrate')),
     waterColor:  getField(prefix + '-color'),
