@@ -34,6 +34,27 @@ var MapModule = (function() {
     'Пересохла': '#ea4335',
   };
 
+  var INTENSITY_RADIUS = {
+    'Слабая (капёж)': 4.5,
+    'Умеренная': 6,
+    'Сильная (поток)': 7.5,
+    'Очень сильная': 9,
+  };
+
+  function getIntensityRadius(intensity) {
+    return INTENSITY_RADIUS[intensity] || 5.5;
+  }
+
+  function getScreenRadius(intensity, viewScale) {
+    var s = (typeof viewScale === 'number' && viewScale > 0) ? viewScale : 1;
+    var base = getIntensityRadius(intensity);
+    // компенсируем zoom, чтобы размер маркера на экране оставался читаемым
+    var adjusted = base / Math.pow(s, 0.35);
+    if (adjusted < 4) adjusted = 4;
+    if (adjusted > 11) adjusted = 11;
+    return adjusted;
+  }
+
   // ── Пиксели → X/Y ────────────────────────────────────────
   // X растёт слева направо: Xmin=45850 при px=0, Xmax=47350 при px=W
   // Y убывает сверху вниз:  Ymax=17350 при py=0, Ymin=15800 при py=H
@@ -120,7 +141,7 @@ var MapModule = (function() {
   }
 
   // ── Рендер точек ─────────────────────────────────────────
-  function drawPoints(ctx, points, imgW, imgH) {
+  function drawPoints(ctx, points, imgW, imgH, viewScale) {
     for (var i = 0; i < points.length; i++) {
       var p = points[i];
       var x = p.xLocal, y = p.yLocal;
@@ -131,27 +152,31 @@ var MapModule = (function() {
       if (x == null || y == null) continue;
       var pos = xyToPixel(x, y, imgW, imgH);
       var color = STATUS_COLORS[p.status] || '#666';
+      var radius = getScreenRadius(p.intensity, viewScale);
       ctx.shadowColor = 'rgba(0,0,0,0.25)';
       ctx.shadowBlur  = 5;
       ctx.beginPath();
-      ctx.arc(pos.px, pos.py, 9, 0, Math.PI*2);
+      ctx.arc(pos.px, pos.py, radius, 0, Math.PI*2);
       ctx.fillStyle = color;
       ctx.fill();
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur  = 0;
       ctx.strokeStyle = '#fff';
-      ctx.lineWidth   = 2;
+      ctx.lineWidth   = 1.5;
       ctx.stroke();
       ctx.fillStyle    = '#fff';
       ctx.font         = 'bold 9px sans-serif';
       ctx.textAlign    = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(String(p.pointNumber || '?'), pos.px, pos.py);
+      // для компактных маркеров не рисуем номер внутри — меньше визуального шума
+      if (radius >= 6) {
+        ctx.fillText(String(p.pointNumber || '?'), pos.px, pos.py);
+      }
     }
   }
 
   // ── Hit-test ─────────────────────────────────────────────
-  function findPointAt(imgX, imgY, points, imgW, imgH) {
+  function findPointAt(imgX, imgY, points, imgW, imgH, viewScale) {
     for (var i = 0; i < points.length; i++) {
       var p = points[i];
       var x = p.xLocal, y = p.yLocal;
@@ -162,7 +187,8 @@ var MapModule = (function() {
       if (x == null || y == null) continue;
       var pos = xyToPixel(x, y, imgW, imgH);
       var dx  = imgX - pos.px, dy = imgY - pos.py;
-      if (Math.sqrt(dx*dx + dy*dy) <= 14) return p;
+      var hit = getScreenRadius(p.intensity, viewScale) + 4;
+      if (Math.sqrt(dx*dx + dy*dy) <= hit) return p;
     }
     return null;
   }
@@ -176,5 +202,6 @@ var MapModule = (function() {
     xyToWgs84:     xyToWgs84,
     drawPoints:    drawPoints,
     findPointAt:   findPointAt,
+    getIntensityRadius: getIntensityRadius,
   };
 })();
