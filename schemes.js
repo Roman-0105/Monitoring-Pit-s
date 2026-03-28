@@ -67,16 +67,16 @@ var Schemes = (function() {
 
   function load() {
     if (typeof Api === 'undefined') {
-      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
+      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme);
       return Promise.resolve(_list);
     }
     return Api.getSchemes().then(function(schemes) {
-      _list = (schemes || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
+      _list = (schemes || []).map(normalizeScheme);
       Storage.cacheSchemes(_list);
       Diagnostics.set('schemeStatus', _list.length ? 'loaded' : 'none');
       return _list;
     }).catch(function(err) {
-      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
+      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme);
       Diagnostics.setError('scheme', err.message);
       Diagnostics.set('schemeStatus', _list.length ? 'loaded' : 'error');
       return _list;
@@ -111,7 +111,9 @@ var Schemes = (function() {
 
   function getLatest() {
     if (!_list.length) return null;
-    var sorted = _list.slice().sort(function(a, b) {
+    var withWeek = _list.filter(function(s) { return !!s.weekKey; });
+    if (!withWeek.length) return null;
+    var sorted = withWeek.slice().sort(function(a, b) {
       var aWeek = a.weekKey || '';
       var bWeek = b.weekKey || '';
       if (aWeek !== bWeek) return aWeek > bWeek ? -1 : 1;

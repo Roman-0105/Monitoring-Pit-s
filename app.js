@@ -152,7 +152,7 @@ function switchTab(name) {
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
   if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
-  if (name === 'settings') { renderSettingsSchemes(); renderSettingsColors(); switchSettingsTab('main'); }
+  if (name === 'settings') { refreshSchemesData(); renderSettingsColors(); switchSettingsTab('main'); }
   if (name === 'workers') renderWorkerManageList();
   if (name === 'stats') renderStatsPage();
 }
@@ -902,7 +902,7 @@ function getMapActiveScheme() {
 function renderMapSchemeSelector() {
   var sel = document.getElementById('map-scheme-select');
   if (!sel) return;
-  var list = Schemes.getList().slice().sort(function(a, b) {
+  var list = Schemes.getList().filter(function(s) { return !!s.weekKey; }).slice().sort(function(a, b) {
     return (a.weekKey || '') > (b.weekKey || '') ? -1 : 1;
   });
   var html = '<option value="auto">Авто: текущая / последняя</option>';
@@ -1742,7 +1742,7 @@ function showMapPointCard(p) {
 
 // ── Настройки — схемы ────────────────────────────────────
 function initSettings() {
-  renderSettingsSchemes();
+  refreshSchemesData();
   renderSettingsColors();
   initSettingsTabs();
 
@@ -1768,6 +1768,21 @@ function initSettings() {
     uploadBtn._bound = true;
     uploadBtn.addEventListener('click', uploadScheme);
   }
+}
+
+function refreshSchemesData() {
+  renderSettingsSchemes();
+  if (typeof Schemes === 'undefined' || !Schemes.load) return;
+  Schemes.load().then(function() {
+    renderSettingsSchemes();
+    renderMapSchemeSelector();
+    if (AppState.currentTab === 'map') {
+      _mapSchemeImg = null;
+      renderMap();
+    }
+  }).catch(function() {
+    renderSettingsSchemes();
+  });
 }
 
 function initSettingsTabs() {
@@ -1926,7 +1941,14 @@ function renderSettingsSchemes() {
   var activeEl = document.getElementById('settings-active-scheme');
   var currentWeekStatusEl = document.getElementById('settings-current-week-status');
   if (!container) return;
-  var schemes = Schemes.getList();
+  var schemes = Schemes.getList().slice().sort(function(a, b) {
+    var aW = a.weekKey || '';
+    var bW = b.weekKey || '';
+    if (aW !== bW) return aW > bW ? -1 : 1;
+    var aAt = a.uploadedAt || '';
+    var bAt = b.uploadedAt || '';
+    return aAt > bAt ? -1 : (aAt < bAt ? 1 : 0);
+  });
   var current = Schemes.currentWeekKey();
   var activeScheme = Schemes.getCurrent();
   var currentWeekScheme = Schemes.getByWeek(current);
@@ -1957,8 +1979,9 @@ function renderSettingsSchemes() {
   var html = '';
   for (var i = 0; i < schemes.length; i++) {
     var s = schemes[i];
+    var label = s.weekKey ? Schemes.formatWeekKey(s.weekKey) : 'Без недели';
     html += '<div class="scheme-item">';
-    html += '<div><div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
+    html += '<div><div class="scheme-item__week">' + label + '</div>';
     html += '<div class="scheme-item__date">' + (s.uploadedAt ? formatDate(s.uploadedAt) : '—') + '</div></div>';
     if (s.weekKey === current) html += '<span class="scheme-item__current">✅ Текущая</span>';
     else if (activeScheme && s.weekKey === activeScheme.weekKey) html += '<span class="scheme-item__current">📌 Активная</span>';
