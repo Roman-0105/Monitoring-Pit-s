@@ -1438,6 +1438,28 @@ function updateMapLegendPoints() {
       html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
     }
   });
+  html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1882,7 +1904,6 @@ function renderSettingsSchemes() {
     if (s.weekKey === current) html += '<span class="scheme-item__current">✅ Текущая</span>';
     html += '</div>';
   }
-  container.innerHTML = html;
 }
 
 function uploadScheme() {
