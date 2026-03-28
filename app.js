@@ -890,13 +890,47 @@ var _mapDragStartY = 0;
 var _mapFilters = { week: 'all', worker: 'all' };
 var _statsFilters = { week: 'all', worker: 'all' };
 var _mapUiState = { showFilter: true, showLegend: true };
+var _mapSelectedWeekKey = 'auto';
+
+function getMapActiveScheme() {
+  if (_mapSelectedWeekKey && _mapSelectedWeekKey !== 'auto') {
+    return Schemes.getByWeek(_mapSelectedWeekKey);
+  }
+  return Schemes.getCurrent();
+}
+
+function renderMapSchemeSelector() {
+  var sel = document.getElementById('map-scheme-select');
+  if (!sel) return;
+  var list = Schemes.getList().slice().sort(function(a, b) {
+    return (a.weekKey || '') > (b.weekKey || '') ? -1 : 1;
+  });
+  var html = '<option value="auto">Авто: текущая / последняя</option>';
+  list.forEach(function(s) {
+    html += '<option value="' + escAttr(s.weekKey) + '">' + Schemes.formatWeekKey(s.weekKey) + '</option>';
+  });
+  sel.innerHTML = html;
+  if (_mapSelectedWeekKey !== 'auto' && !Schemes.getByWeek(_mapSelectedWeekKey)) {
+    _mapSelectedWeekKey = 'auto';
+  }
+  sel.value = _mapSelectedWeekKey || 'auto';
+  if (!sel._bound) {
+    sel._bound = true;
+    sel.addEventListener('change', function() {
+      _mapSelectedWeekKey = sel.value || 'auto';
+      _mapSchemeImg = null;
+      renderMap();
+    });
+  }
+}
 
 function renderMap() {
   var canvas   = document.getElementById('map-canvas');
   var noScheme = document.getElementById('map-no-scheme');
   if (!canvas) return;
+  renderMapSchemeSelector();
 
-  var scheme = Schemes.getCurrent();
+  var scheme = getMapActiveScheme();
   if (!scheme) {
     canvas.style.display = 'none';
     if (noScheme) noScheme.style.display = 'block';
@@ -910,7 +944,7 @@ function renderMap() {
     return;
   }
 
-  Schemes.getCurrentImage().then(function(dataUrl) {
+  Schemes.getImage(scheme.weekKey).then(function(dataUrl) {
     if (!dataUrl) {
       canvas.style.display = 'none';
       if (noScheme) noScheme.style.display = 'block';
@@ -1439,13 +1473,6 @@ function updateMapLegendPoints() {
     }
   });
   html += '</div>';
-  html += '<br><b>По интенсивности</b><br>';
-  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
-    if (byIntensity[it]) {
-      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
-    }
-  });
-  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1897,14 +1924,26 @@ function renderSettingsSchemes() {
   if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
   var container = document.getElementById('settings-schemes-list');
   var activeEl = document.getElementById('settings-active-scheme');
+  var currentWeekStatusEl = document.getElementById('settings-current-week-status');
   if (!container) return;
   var schemes = Schemes.getList();
   var current = Schemes.currentWeekKey();
   var activeScheme = Schemes.getCurrent();
+  var currentWeekScheme = Schemes.getByWeek(current);
   if (!schemes.length) {
     container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
     if (activeEl) activeEl.textContent = '';
+    if (currentWeekStatusEl) currentWeekStatusEl.textContent = 'Статус текущей недели: схема не загружена';
     return;
+  }
+  if (currentWeekStatusEl) {
+    if (currentWeekScheme) {
+      currentWeekStatusEl.textContent = 'Статус текущей недели: схема загружена';
+    } else if (activeScheme) {
+      currentWeekStatusEl.textContent = 'Статус текущей недели: нет, используется ' + Schemes.formatWeekKey(activeScheme.weekKey);
+    } else {
+      currentWeekStatusEl.textContent = 'Статус текущей недели: схема не загружена';
+    }
   }
   if (activeEl) {
     if (activeScheme) {
@@ -1922,6 +1961,7 @@ function renderSettingsSchemes() {
     html += '<div><div class="scheme-item__week">' + Schemes.formatWeekKey(s.weekKey) + '</div>';
     html += '<div class="scheme-item__date">' + (s.uploadedAt ? formatDate(s.uploadedAt) : '—') + '</div></div>';
     if (s.weekKey === current) html += '<span class="scheme-item__current">✅ Текущая</span>';
+    else if (activeScheme && s.weekKey === activeScheme.weekKey) html += '<span class="scheme-item__current">📌 Активная</span>';
     html += '</div>';
   }
 }

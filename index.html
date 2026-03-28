@@ -183,6 +183,10 @@
       <button class="btn btn-sm btn-outline" id="btn-map-legend-section-toggle" title="Показать/скрыть легенду" style="margin-left:4px">
         📑 Легенда
       </button>
+      <div class="map-scheme-select-wrap">
+        <label class="map-scheme-select-label" for="map-scheme-select">Схема</label>
+        <select id="map-scheme-select" class="filter-select filter-select--compact"></select>
+      </div>
       <span id="map-add-hint" class="map-add-hint" style="display:none">
         Нажмите на карту чтобы поставить точку
       </span>
@@ -247,6 +251,7 @@
         <div class="form-group">
           <label class="form-label">Текущая неделя</label>
           <div id="settings-week-key" class="settings-week-label">—</div>
+          <p class="form-hint" id="settings-current-week-status"></p>
         </div>
         <div class="form-group">
           <label class="form-label">Загруженные схемы</label>

@@ -461,9 +461,26 @@ body {
   padding: 10px 14px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   border-bottom: 1px solid var(--line-2);
   background: linear-gradient(180deg, rgba(26,34,46,.96), rgba(18,24,33,.9));
+}
+.map-scheme-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.map-scheme-select-label {
+  font-size: 11px;
+  color: var(--txt-3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.filter-select--compact {
+  min-width: 210px;
+  max-width: 280px;
 }
 .map-add-hint { color: #ffcb74; font-size: 12px; }
 .map-container { flex: 1; display: flex; min-height: 0; }
