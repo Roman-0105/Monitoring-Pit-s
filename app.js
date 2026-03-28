@@ -152,7 +152,7 @@ function switchTab(name) {
   if (name === 'add')     resetAddForm();
   if (name === 'diag')     Diagnostics.render();
   if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
-  if (name === 'settings') { renderSettingsSchemes(); renderSettingsColors(); }
+  if (name === 'settings') { renderSettingsSchemes(); renderSettingsColors(); switchSettingsTab('main'); }
   if (name === 'workers') renderWorkerManageList();
   if (name === 'stats') renderStatsPage();
 }
@@ -1453,6 +1453,13 @@ function updateMapLegendPoints() {
     }
   });
   html += '</div>';
+  html += '<br><b>По интенсивности</b><br>';
+  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
+    if (byIntensity[it]) {
+      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
+    }
+  });
+  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1724,6 +1731,7 @@ function showMapPointCard(p) {
 function initSettings() {
   renderSettingsSchemes();
   renderSettingsColors();
+  initSettingsTabs();
 
   var fileInput = document.getElementById('scheme-file');
   if (fileInput && !fileInput._bound) {
@@ -1749,23 +1757,50 @@ function initSettings() {
   }
 }
 
+function initSettingsTabs() {
+  var tabs = document.querySelectorAll('[data-settings-tab]');
+  if (!tabs || !tabs.length) return;
+  tabs.forEach(function(btn) {
+    if (btn._bound) return;
+    btn._bound = true;
+    btn.addEventListener('click', function() {
+      switchSettingsTab(btn.dataset.settingsTab || 'main');
+    });
+  });
+  var hasActive = document.querySelector('[data-settings-tab].active');
+  if (!hasActive) switchSettingsTab('main');
+}
+
+function switchSettingsTab(name) {
+  var tabName = name || 'main';
+  document.querySelectorAll('[data-settings-tab]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.settingsTab === tabName);
+  });
+  var mainPanel = document.getElementById('settings-panel-main');
+  var legendPanel = document.getElementById('settings-panel-legend');
+  if (mainPanel) mainPanel.classList.toggle('active', tabName === 'main');
+  if (legendPanel) legendPanel.classList.toggle('active', tabName === 'legend');
+}
+
 function renderSettingsColors() {
   if (typeof MapModule === 'undefined') return;
-  var cfg = MapModule.getStyleConfig();
+  var cfg = MapModule.getStyleConfig() || {};
+  var statusColors = cfg.statusColors || {};
+  var domainColors = cfg.domainColors || {};
   function bindColor(id, val) {
     var el = document.getElementById(id);
     if (el) el.value = val || '#888888';
   }
-  bindColor('set-status-new', cfg.statusColors['Новая']);
-  bindColor('set-status-active', cfg.statusColors['Активная']);
-  bindColor('set-status-fading', cfg.statusColors['Иссякает']);
-  bindColor('set-status-dry', cfg.statusColors['Пересохла']);
+  bindColor('set-status-new', statusColors['Новая']);
+  bindColor('set-status-active', statusColors['Активная']);
+  bindColor('set-status-fading', statusColors['Иссякает']);
+  bindColor('set-status-dry', statusColors['Пересохла']);
   bindColor('set-intensity-color', cfg.intensityColor);
-  bindColor('set-domain-1', cfg.domainColors['Domen-1']);
-  bindColor('set-domain-2', cfg.domainColors['Domen-2']);
-  bindColor('set-domain-3', cfg.domainColors['Domen-3']);
-  bindColor('set-domain-4', cfg.domainColors['Domen-4']);
-  bindColor('set-domain-5', cfg.domainColors['Domen-5']);
+  bindColor('set-domain-1', domainColors['Domen-1']);
+  bindColor('set-domain-2', domainColors['Domen-2']);
+  bindColor('set-domain-3', domainColors['Domen-3']);
+  bindColor('set-domain-4', domainColors['Domen-4']);
+  bindColor('set-domain-5', domainColors['Domen-5']);
 
   var btnStatus = document.getElementById('btn-save-status-colors');
   if (btnStatus && !btnStatus._bound) {

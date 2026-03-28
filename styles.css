@@ -620,6 +620,13 @@ body {
   background: rgba(14,20,29,.78);
   color: #ffd08a;
 }
+.settings-subtabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.settings-panel { display: none; }
+.settings-panel.active { display: block; }
 .settings-schemes-list { display: grid; gap: 8px; }
 .scheme-item {
   border: 1px solid var(--line);
