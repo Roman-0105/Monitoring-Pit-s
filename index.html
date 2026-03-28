@@ -251,6 +251,7 @@
         <div class="form-group">
           <label class="form-label">Загруженные схемы</label>
           <div id="settings-schemes-list" class="settings-schemes-list">Загрузка...</div>
+          <p class="form-hint" id="settings-active-scheme"></p>
         </div>
         <div class="form-group">
           <label class="form-label">Загрузить новую схему</label>
@@ -270,30 +271,13 @@
     <div class="settings-panel" id="settings-panel-legend">
       <div class="card">
         <div class="card-title">Настройки цветов карты</div>
-        <p class="form-hint" style="margin-bottom:12px">Здесь настраиваются только цвета статусов, интенсивности и доменов.</p>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="set-status-new">Статус: Новая</label>
-            <input class="form-input" type="color" id="set-status-new">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="set-status-active">Статус: Активная</label>
-            <input class="form-input" type="color" id="set-status-active">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="set-status-fading">Статус: Иссякает</label>
-            <input class="form-input" type="color" id="set-status-fading">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="set-status-dry">Статус: Пересохла</label>
-            <input class="form-input" type="color" id="set-status-dry">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-intensity-color">Цвет маркера (режим INTENSITY)</label>
-          <input class="form-input" type="color" id="set-intensity-color">
+        <p class="form-hint" style="margin-bottom:12px">Компактные плитки цветов для статусов и интенсивности.</p>
+        <div class="color-grid color-grid--status">
+          <div class="color-tile"><span class="color-swatch" id="swatch-status-new"></span><span class="color-title">Новая</span><input type="color" id="set-status-new" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-status-active"></span><span class="color-title">Активная</span><input type="color" id="set-status-active" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-status-fading"></span><span class="color-title">Иссякает</span><input type="color" id="set-status-fading" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-status-dry"></span><span class="color-title">Пересохла</span><input type="color" id="set-status-dry" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-intensity"></span><span class="color-title">Intensity</span><input type="color" id="set-intensity-color" class="color-picker"></div>
         </div>
         <button class="btn btn-primary" id="btn-save-status-colors">Сохранить цвета статусов</button>
         <p class="form-hint" id="map-color-save-msg"></p>
@@ -301,17 +285,12 @@
 
       <div class="card">
         <div class="card-title">Цвета доменов</div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label" for="set-domain-1">Domen-1</label><input class="form-input" type="color" id="set-domain-1"></div>
-          <div class="form-group"><label class="form-label" for="set-domain-2">Domen-2</label><input class="form-input" type="color" id="set-domain-2"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group"><label class="form-label" for="set-domain-3">Domen-3</label><input class="form-input" type="color" id="set-domain-3"></div>
-          <div class="form-group"><label class="form-label" for="set-domain-4">Domen-4</label><input class="form-input" type="color" id="set-domain-4"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="set-domain-5">Domen-5</label>
-          <input class="form-input" type="color" id="set-domain-5">
+        <div class="color-grid color-grid--domain">
+          <div class="color-tile"><span class="color-swatch" id="swatch-domain-1"></span><span class="color-title">Domen-1</span><input type="color" id="set-domain-1" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-domain-2"></span><span class="color-title">Domen-2</span><input type="color" id="set-domain-2" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-domain-3"></span><span class="color-title">Domen-3</span><input type="color" id="set-domain-3" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-domain-4"></span><span class="color-title">Domen-4</span><input type="color" id="set-domain-4" class="color-picker"></div>
+          <div class="color-tile"><span class="color-swatch" id="swatch-domain-5"></span><span class="color-title">Domen-5</span><input type="color" id="set-domain-5" class="color-picker"></div>
         </div>
         <button class="btn btn-primary" id="btn-save-domain-colors">Сохранить цвета доменов</button>
         <p class="form-hint" id="map-domain-save-msg"></p>

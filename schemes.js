@@ -67,16 +67,16 @@ var Schemes = (function() {
 
   function load() {
     if (typeof Api === 'undefined') {
-      _list = Storage.getCachedSchemes() || [];
+      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
       return Promise.resolve(_list);
     }
     return Api.getSchemes().then(function(schemes) {
-      _list = schemes || [];
+      _list = (schemes || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
       Storage.cacheSchemes(_list);
       Diagnostics.set('schemeStatus', _list.length ? 'loaded' : 'none');
       return _list;
     }).catch(function(err) {
-      _list = Storage.getCachedSchemes() || [];
+      _list = (Storage.getCachedSchemes() || []).map(normalizeScheme).filter(function(s) { return !!s.weekKey; });
       Diagnostics.setError('scheme', err.message);
       Diagnostics.set('schemeStatus', _list.length ? 'loaded' : 'error');
       return _list;
@@ -89,8 +89,41 @@ var Schemes = (function() {
     return _list.find(function(s) { return s.weekKey === weekKey; }) || null;
   }
 
+  function parseDriveFileId(url) {
+    if (!url || typeof url !== 'string') return '';
+    var m = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (m && m[1]) return m[1];
+    var m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    return m2 && m2[1] ? m2[1] : '';
+  }
+
+  function normalizeScheme(scheme) {
+    var item = scheme || {};
+    var driveUrl = item.driveUrl || item.url || '';
+    return {
+      weekKey: item.weekKey || '',
+      driveUrl: driveUrl,
+      driveFileId: item.driveFileId || item.fileId || parseDriveFileId(driveUrl),
+      uploadedAt: item.uploadedAt || item.createdAt || '',
+      uploadedBy: item.uploadedBy || '',
+    };
+  }
+
+  function getLatest() {
+    if (!_list.length) return null;
+    var sorted = _list.slice().sort(function(a, b) {
+      var aWeek = a.weekKey || '';
+      var bWeek = b.weekKey || '';
+      if (aWeek !== bWeek) return aWeek > bWeek ? -1 : 1;
+      var aAt = a.uploadedAt || '';
+      var bAt = b.uploadedAt || '';
+      return aAt > bAt ? -1 : (aAt < bAt ? 1 : 0);
+    });
+    return sorted[0] || null;
+  }
+
   function getCurrent() {
-    return getByWeek(currentWeekKey());
+    return getByWeek(currentWeekKey()) || getLatest();
   }
 
   // ── Загрузка схемы на сервер ──────────────────────────────
@@ -146,7 +179,9 @@ var Schemes = (function() {
   }
 
   function getCurrentImage() {
-    return getImage(currentWeekKey());
+    var active = getCurrent();
+    if (!active || !active.weekKey) return Promise.resolve(null);
+    return getImage(active.weekKey);
   }
 
   return {
@@ -155,6 +190,7 @@ var Schemes = (function() {
     load:            load,
     getList:         getList,
     getByWeek:       getByWeek,
+    getLatest:       getLatest,
     getCurrent:      getCurrent,
     upload:          upload,
     getImage:        getImage,

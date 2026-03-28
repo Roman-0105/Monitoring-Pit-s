@@ -1446,20 +1446,6 @@ function updateMapLegendPoints() {
     }
   });
   html += '</div>';
-  html += '<br><b>По интенсивности</b><br>';
-  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
-    if (byIntensity[it]) {
-      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
-    }
-  });
-  html += '</div>';
-  html += '<br><b>По интенсивности</b><br>';
-  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
-    if (byIntensity[it]) {
-      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
-    }
-  });
-  html += '</div>';
   // Добавляем счётчики по доменам
   if (typeof Domens !== 'undefined') {
     html += '<br><b>По доменам</b><br>';
@@ -1791,6 +1777,18 @@ function renderSettingsColors() {
     var el = document.getElementById(id);
     if (el) el.value = val || '#888888';
   }
+  function bindSwatch(inputId, swatchId) {
+    var input = document.getElementById(inputId);
+    var swatch = document.getElementById(swatchId);
+    if (!input || !swatch) return;
+    swatch.style.background = input.value || '#888888';
+    if (!input._swatchBound) {
+      input._swatchBound = true;
+      input.addEventListener('input', function() {
+        swatch.style.background = input.value || '#888888';
+      });
+    }
+  }
   bindColor('set-status-new', statusColors['Новая']);
   bindColor('set-status-active', statusColors['Активная']);
   bindColor('set-status-fading', statusColors['Иссякает']);
@@ -1801,6 +1799,16 @@ function renderSettingsColors() {
   bindColor('set-domain-3', domainColors['Domen-3']);
   bindColor('set-domain-4', domainColors['Domen-4']);
   bindColor('set-domain-5', domainColors['Domen-5']);
+  bindSwatch('set-status-new', 'swatch-status-new');
+  bindSwatch('set-status-active', 'swatch-status-active');
+  bindSwatch('set-status-fading', 'swatch-status-fading');
+  bindSwatch('set-status-dry', 'swatch-status-dry');
+  bindSwatch('set-intensity-color', 'swatch-intensity');
+  bindSwatch('set-domain-1', 'swatch-domain-1');
+  bindSwatch('set-domain-2', 'swatch-domain-2');
+  bindSwatch('set-domain-3', 'swatch-domain-3');
+  bindSwatch('set-domain-4', 'swatch-domain-4');
+  bindSwatch('set-domain-5', 'swatch-domain-5');
 
   var btnStatus = document.getElementById('btn-save-status-colors');
   if (btnStatus && !btnStatus._bound) {
@@ -1888,12 +1896,24 @@ function renderSettingsSchemes() {
   var weekEl = document.getElementById('settings-week-key');
   if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
   var container = document.getElementById('settings-schemes-list');
+  var activeEl = document.getElementById('settings-active-scheme');
   if (!container) return;
   var schemes = Schemes.getList();
   var current = Schemes.currentWeekKey();
+  var activeScheme = Schemes.getCurrent();
   if (!schemes.length) {
     container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
+    if (activeEl) activeEl.textContent = '';
     return;
+  }
+  if (activeEl) {
+    if (activeScheme) {
+      var currentHit = activeScheme.weekKey === current;
+      activeEl.textContent = 'Активная схема: ' + Schemes.formatWeekKey(activeScheme.weekKey) +
+        (currentHit ? ' (текущая неделя)' : ' (последняя доступная)');
+    } else {
+      activeEl.textContent = '';
+    }
   }
   var html = '';
   for (var i = 0; i < schemes.length; i++) {
