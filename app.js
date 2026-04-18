@@ -1,62 +1,84 @@
 /**
- * app.js — инициализация, роутинг, UI.
- * Весь JS здесь. В index.html нет inline-скриптов.
+ * app.js — инициализация, роутинг, синхронизация.
+ *
+ * Переработан v2: логика вынесена в отдельные модули:
+ *   ui-utils.js      — общие утилиты (форматирование, фильтры, GPS)
+ *   ui-points.js     — список точек, формы добавления/редактирования, сотрудники
+ *   ui-map.js        — карта, зум, взаимодействие
+ *   ui-stats.js      — аналитика
+ *   ui-settings.js   — настройки (схемы, цвета)
+ *
+ * Порядок подключения скриптов в index.html:
+ *   storage.js → diagnostics.js → api.js → workers.js → points.js →
+ *   photos.js → domens.js → map.js → schemes.js →
+ *   ui-utils.js → ui-points.js → ui-map.js → ui-stats.js → ui-settings.js → app.js
  */
 
 window.APP_CONFIG = {
   SCRIPT_URL:       'https://script.google.com/macros/s/AKfycbxYfkdHku11BabfoZ8qQsSqyPehKSfOs5nsA3jXDjuDHavL4IzogGO4o-2GN6-AVsba/exec',
-  SYNC_INTERVAL_MS: 30000,
+  SYNC_INTERVAL_MS: 30000, // будет перезаписан из Storage после загрузки
 };
+
+// Хранит id открытых мини-графиков на карточках точек: { pointId: true }
+var _openCharts = {};
+
+// Перезаписать интервал из настроек
+function applySyncInterval() {
+  var ms = Storage.getSyncInterval();
+  APP_CONFIG.SYNC_INTERVAL_MS = ms;
+}
 
 var AppState = {
   currentTab:     'points',
   editingPointId: null,
-  syncing:        false,  // блокировка параллельных синхронизаций
+  syncing:        false,
 };
 
-var MAP_STYLE_STORAGE_KEY = 'gm_map_style_cfg';
 
-// ── Инициализация ─────────────────────────────────────────
 // ── Lightbox для фото ────────────────────────────────────
+
 function initPhotoLightbox() {
   var lb = document.createElement('div');
   lb.id = 'photo-lightbox';
   lb.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:9999;' +
     'align-items:center;justify-content:center;cursor:zoom-out';
-  lb.innerHTML = '<img id="lb-img" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:4px">' +
+  lb.innerHTML =
+    '<img id="lb-img" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:4px">' +
     '<button id="lb-close" style="position:absolute;top:16px;right:20px;background:none;border:none;' +
     'color:#fff;font-size:32px;cursor:pointer;line-height:1">✕</button>';
   document.body.appendChild(lb);
 
-  function openLb(src) {
-    document.getElementById('lb-img').src = src;
-    lb.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-  }
-  function closeLb() {
-    lb.style.display = 'none';
-    document.body.style.overflow = '';
-  }
+  function openLb(src) { document.getElementById('lb-img').src = src; lb.style.display = 'flex'; document.body.style.overflow = 'hidden'; }
+  function closeLb()   { lb.style.display = 'none'; document.body.style.overflow = ''; }
+
+  // Глобальная функция для вызова из других модулей
+  window.openLightbox = openLb;
 
   lb.addEventListener('click', function(e) { if (e.target === lb) closeLb(); });
   document.getElementById('lb-close').addEventListener('click', closeLb);
   document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLb(); });
-
-  // Делегируем клики по фото в карточках
+  // Делегированный клик — все фото галереи
   document.addEventListener('click', function(e) {
     var img = e.target;
-    if (img && (img.classList.contains('card-photo-thumb') || img.classList.contains('mpc-photo'))) {
+    if (img && img.tagName === 'IMG' && (
+      img.classList.contains('card-photo-thumb') ||
+      img.classList.contains('mpc-photo') ||
+
+      img.classList.contains('photo-thumb')
+    )) {
       if (img.src && img.src !== window.location.href) openLb(img.src);
     }
   });
 }
 
+// ── Инициализация ─────────────────────────────────────────
+
 document.addEventListener('DOMContentLoaded', function() {
   // Проверяем что все модули загружены
-  if (typeof Api === 'undefined' || typeof Points === 'undefined' ||
-      typeof Storage === 'undefined') {
-    console.error('Критическая ошибка: не все модули загружены. Проверь подключение скриптов.');
-    document.body.innerHTML = '<div style="padding:32px;text-align:center;font-family:sans-serif">' +
+  if (typeof Api === 'undefined' || typeof Points === 'undefined' || typeof Storage === 'undefined') {
+    console.error('Критическая ошибка: не все модули загружены.');
+    document.body.innerHTML =
+      '<div style="padding:32px;text-align:center;font-family:sans-serif">' +
       '<h2 style="color:#ea4335">Ошибка загрузки</h2>' +
       '<p>Не удалось загрузить компоненты сайта.<br>Обнови страницу (F5).</p>' +
       '<button onclick="location.reload()" style="margin-top:16px;padding:10px 24px;' +
@@ -64,23 +86,40 @@ document.addEventListener('DOMContentLoaded', function() {
       '</div>';
     return;
   }
+
   showLoader('Загрузка...');
 
-  // Конфигурация
+  // Настройки устройства
   var devEl = document.getElementById('device-id-display');
   if (devEl) devEl.textContent = Storage.getDeviceId();
   var suEl  = document.getElementById('script-url-status');
   if (suEl)  suEl.textContent  = (APP_CONFIG.SCRIPT_URL && APP_CONFIG.SCRIPT_URL.indexOf('ВСТАВЬ') < 0) ? '✅ задан' : '❌ не задан';
 
+  // Загружаем сохранённые настройки цветов карты
   loadMapStyleSettings();
+
   initTabs();
+
+  // Глобальный сброс тултипа при смене вкладки
+  document.querySelectorAll('.tab-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tooltipEl = document.getElementById('map-tooltip');
+      if (tooltipEl) tooltipEl.style.display = 'none';
+      document.querySelectorAll('.map-point-card').forEach(function(el){ el.remove(); });
+  // Скрываем карточку канавы (класс ditch-map-card)
+  document.querySelectorAll('.ditch-map-card').forEach(function(el){ el.remove(); });
+    });
+  });
   initPhotoLightbox();
   initAddForm();
   initEditModal();
   initDiagButtons();
   Photos.initPhotoInput('f-photo', 'f-photo-preview');
+  // f-photo-btn: обработчик через onclick в HTML
   initSettings();
+  initStatsSubTabs();
   Diagnostics.render();
+
   // Статус-бар: сеть
   function updateNetStatus() {
     var el = document.getElementById('sb-net');
@@ -90,7 +129,11 @@ document.addEventListener('DOMContentLoaded', function() {
   window.addEventListener('online',  updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
 
+  // Загрузка данных
   Promise.all([Workers.load(), Points.load(), Schemes.load()]).then(function() {
+    if (typeof Schemes !== 'undefined' && typeof Schemes.preloadCurrent === 'function') {
+      Schemes.preloadCurrent();
+    }
     renderWorkers();
     renderPointsList();
     initMapFilters();
@@ -99,6 +142,18 @@ document.addEventListener('DOMContentLoaded', function() {
     Diagnostics.clearError();
     Diagnostics.set('queueSize', Storage.getQueue().length);
     hideLoader();
+    // Рендерим дашборд (главная страница)
+    if (typeof renderDashboard === 'function') renderDashboard();
+    // Инициализируем модуль канав
+    if (typeof initDitchModule === 'function') {
+      initDitchModule(function() {
+        // После загрузки — обновляем панель канав если она открыта
+        var activeTab = document.querySelector('[data-stats-tab].active');
+        if (activeTab && activeTab.dataset.statsTab === 'ditches') {
+          if (typeof renderDitchStatsPanel === 'function') renderDitchStatsPanel();
+        }
+      });
+    }
   }).catch(function(err) {
     Diagnostics.setError('sync', 'Начальная загрузка: ' + err.message);
     renderWorkers();
@@ -109,16 +164,28 @@ document.addEventListener('DOMContentLoaded', function() {
     hideLoader();
   });
 
-  setInterval(syncAll, APP_CONFIG.SYNC_INTERVAL_MS);
+  // Автосинхронизация — интервал из настроек
+  applySyncInterval();
+  var _syncTimer = setInterval(syncAll, APP_CONFIG.SYNC_INTERVAL_MS);
+
+  // Функция перезапуска таймера (вызывается из настроек при смене интервала)
+  window.restartSyncTimer = function() {
+    clearInterval(_syncTimer);
+    applySyncInterval();
+    _syncTimer = setInterval(syncAll, APP_CONFIG.SYNC_INTERVAL_MS);
+  };
   window.addEventListener('online', function() { Points.flushQueue(); syncAll(); });
 });
 
 // ── Синхронизация ─────────────────────────────────────────
+
 function syncAll() {
   if (!navigator.onLine) return;
-  if (AppState.syncing) return; // не запускаем параллельно
+  if (AppState.syncing) return;
   AppState.syncing = true;
+  var tid = Toast.progress('sync', 'Синхронизация данных...');
   Points.flushQueue().then(function() {
+    Toast.progress('sync', 'Загрузка точек и схем...', 50);
     return Promise.all([Points.load(), Workers.load(), Schemes.load()]);
   }).then(function() {
     renderPointsList();
@@ -127,14 +194,17 @@ function syncAll() {
     initStatsFilters();
     renderStatsPage();
     Diagnostics.clearError();
+    Toast.done('sync', 'Данные синхронизированы');
   }).catch(function(err) {
     Diagnostics.setError('sync', err.message);
+    Toast.fail('sync', 'Ошибка синхронизации: ' + err.message);
   }).then(function() {
-    AppState.syncing = false; // всегда сбрасываем
+    AppState.syncing = false;
   });
 }
 
 // ── Вкладки ───────────────────────────────────────────────
+
 function initTabs() {
   document.querySelectorAll('[data-tab]').forEach(function(btn) {
     btn.addEventListener('click', function() { switchTab(this.dataset.tab); });
@@ -149,720 +219,30 @@ function switchTab(name) {
   document.querySelectorAll('.page').forEach(function(p) {
     p.classList.toggle('active', p.id === 'page-' + name);
   });
-  if (name === 'add')     resetAddForm();
+  // Скрываем тултип и карточки карты при любом переключении вкладки
+  if (typeof hideMapTooltip === 'function') hideMapTooltip();
+  // Инициализация модуля отчёта (только первый раз)
+  if (name === 'report' && typeof initReportTab === 'function' && !window._reportInited) {
+    window._reportInited = true;
+    initReportTab();
+  }
+  var tooltipEl = document.getElementById('map-tooltip');
+  if (tooltipEl) tooltipEl.style.display = 'none';
+  document.querySelectorAll('.map-point-card').forEach(function(el){ el.remove(); });
+  // Скрываем карточку канавы (класс ditch-map-card)
+  document.querySelectorAll('.ditch-map-card').forEach(function(el){ el.remove(); });
+
+  if (name === 'home')     renderDashboard();
+  if (name === 'add')      resetAddForm();
   if (name === 'diag')     Diagnostics.render();
-  if (name === 'map')    { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
+  if (name === 'map')      { _mapSchemeImg = null; initMapFilters(); renderMap(); initMapLegend(); updateMapLegendPoints(); }
   if (name === 'settings') { refreshSchemesData(); renderSettingsColors(); switchSettingsTab('main'); }
-  if (name === 'workers') renderWorkerManageList();
-  if (name === 'stats') renderStatsPage();
-}
-
-// ── Лоадер ───────────────────────────────────────────────
-function showLoader(msg) {
-  var el   = document.getElementById('loader');
-  var txt  = document.getElementById('loader-text');
-  if (txt) txt.textContent = msg || 'Загрузка...';
-  if (el)  el.style.display = 'flex';
-}
-function hideLoader() {
-  var el = document.getElementById('loader');
-  if (el) el.style.display = 'none';
-}
-
-// ── Список точек ─────────────────────────────────────────
-var _pointsFilters = { week: 'all', worker: 'all' };
-
-function initPointsFilters() {
-  var bar = document.getElementById('filter-bar');
-  if (!bar) return;
-  if (!bar._built) {
-    bar._built = true;
-    bar.innerHTML =
-      '<select id="points-filter-week" class="filter-select filter-select--full-mobile"></select>' +
-      '<select id="points-filter-worker" class="filter-select filter-select--full-mobile"></select>';
-  }
-
-  var weekSel = document.getElementById('points-filter-week');
-  var workerSel = document.getElementById('points-filter-worker');
-  if (!weekSel || !workerSel) return;
-
-  var weeks = getAllWeekKeys().map(function(w) {
-    return { value: w, label: Schemes.formatWeekKey(w) };
-  });
-  fillSelectOptions(weekSel, weeks, _pointsFilters.week, 'Все недели');
-
-  var workerSet = {};
-  Points.getList().forEach(function(p) { if (p.worker) workerSet[p.worker] = true; });
-  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
-  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
-  fillSelectOptions(workerSel, workers, _pointsFilters.worker, 'Все сотрудники');
-
-  if (!weekSel._bound) {
-    weekSel._bound = true;
-    weekSel.addEventListener('change', function() {
-      _pointsFilters.week = weekSel.value || 'all';
-      renderPointsList();
-    });
-  }
-  if (!workerSel._bound) {
-    workerSel._bound = true;
-    workerSel.addEventListener('change', function() {
-      _pointsFilters.worker = workerSel.value || 'all';
-      renderPointsList();
-    });
-  }
-}
-
-function renderPointsList() {
-  var container = document.getElementById('points-list');
-  if (!container) return;
-  initPointsFilters();
-  var points = getFilteredPoints(_pointsFilters);
-  var allPoints = Points.getList();
-  if (!points.length) {
-    container.innerHTML = '<p class="empty-msg">Нет точек по выбранному фильтру</p>';
-    var c0 = document.getElementById('points-count-badge');
-    if (c0) c0.textContent = '0 / ' + allPoints.length + ' точек';
-    return;
-  }
-  var html = '';
-  for (var i = 0; i < points.length; i++) {
-    var p = points[i];
-    var pending     = p.syncStatus !== 'synced';
-    var statusColors = (typeof MapModule !== 'undefined') ? MapModule.STATUS_COLORS : {};
-    var statusColor  = statusColors[p.status] || '#aaa';
-    var statusClass  = p.status === 'Новая' ? 'badge-new' :
-                       p.status === 'Активная' ? 'badge-active' :
-                       p.status === 'Иссякает' ? 'badge-fading' :
-                       p.status === 'Пересохла' ? 'badge-dry' : '';
-    var hasPhoto     = p.photoUrls && p.photoUrls[0];
-
-    html += '<div class="point-card' + (pending ? ' point-pending' : '') + '">';
-
-    // Заголовок
-    html += '<div class="point-card__header">';
-    html += '<span class="point-card__num">#' + (p.pointNumber || '—') + '</span>';
-    html += '<span class="badge ' + statusClass + '">' + (p.status || '') + '</span>';
-    if (pending) html += '<span class="sync-badge">⏳</span>';
-    html += '</div>';
-
-    // Фото
-    if (hasPhoto) {
-      html += '<div class="point-card__photo-wrap">';
-      html += '<img class="card-photo-thumb" data-url="' + escAttr(p.photoUrls[0]) + '" src="" alt="фото">';
-      html += '</div>';
-    }
-
-    // Основные поля
-    html += '<div class="point-card__body">';
-    html += '<div class="pc-row"><span class="pc-lbl">👤</span><span>' + (p.worker || '—') + '</span></div>';
-    html += '<div class="pc-row"><span class="pc-lbl">📅</span><span>' + formatDate(p.createdAt) + '</span></div>';
-    if (p.domain || p.wall) {
-      html += '<div class="pc-row">';
-      if (p.domain) html += '<span class="pc-tag pc-domain">' + p.domain + '</span>';
-      if (p.wall)   html += '<span class="pc-tag pc-wall">' + p.wall + '</span>';
-      html += '</div>';
-    }
-    if (p.intensity || p.flowRate != null) {
-      html += '<div class="pc-row"><span class="pc-lbl">💧</span><span>';
-      if (p.intensity) html += p.intensity;
-      if (p.flowRate != null) html += (p.intensity ? ' · ' : '') + formatFlowBothUnits(p.flowRate);
-      html += '</span></div>';
-    }
-    if (p.waterColor) html += '<div class="pc-row"><span class="pc-lbl">🎨</span><span>' + p.waterColor + '</span></div>';
-    if (p.xLocal != null) {
-      html += '<div class="pc-row pc-coords"><span>X: ' + Number(p.xLocal).toFixed(2) +
-              '  Y: ' + Number(p.yLocal).toFixed(2) + '</span></div>';
-    }
-    if (p.comment) html += '<div class="point-card__comment">' + p.comment + '</div>';
-    html += '</div>';
-
-    // Действия
-    html += '<div class="point-card__actions">';
-    html += '<button class="btn btn-sm btn-outline btn-edit" data-pid="' + p.id + '">✏️ Изменить</button>';
-    html += '<button class="btn btn-sm btn-danger  btn-del"  data-pid="' + p.id + '">🗑 Удалить</button>';
-    html += '</div></div>';
-  }
-  container.innerHTML = html;
-
-  // Счётчик точек
-  var countEl = document.getElementById('points-count-badge');
-  if (countEl) countEl.textContent = points.length + ' / ' + allPoints.length + ' точек';
-
-  container.querySelectorAll('.btn-edit').forEach(function(btn) {
-    btn.addEventListener('click', function() { openEditModal(this.dataset.pid); });
-  });
-  container.querySelectorAll('.btn-del').forEach(function(btn) {
-    btn.addEventListener('click', function() { confirmDelete(this.dataset.pid); });
-  });
-  container.querySelectorAll('.card-photo-thumb').forEach(function(img) {
-    Photos.setImageSrc(img, img.dataset.url);
-  });
-  updateMapLegendPoints();
-}
-
-
-function renderWorkers() {
-  var grid = document.getElementById('worker-grid');
-  if (grid) {
-    var workers = Workers.getList();
-    var html = '';
-    for (var i = 0; i < workers.length; i++) {
-      var w = workers[i];
-      html += '<div class="worker-btn" data-wname="' + escAttr(w.name) + '">';
-      html += '<span class="worker-btn__avatar">' + initials(w.name) + '</span>';
-      html += '<span>' + w.name + '</span></div>';
-    }
-    grid.innerHTML = html || '<p class="empty-msg" style="padding:8px 0">Нет сотрудников</p>';
-  }
-  updateWorkerSelects();
-}
-
-function updateWorkerSelects() {
-  var workers = Workers.getList();
-  ['f-worker', 'e-worker'].forEach(function(id) {
-    var sel = document.getElementById(id);
-    if (!sel) return;
-    var cur = sel.value;
-    sel.innerHTML = '<option value="">— выберите —</option>';
-    workers.forEach(function(w) {
-      var opt = document.createElement('option');
-      opt.value = w.name;
-      opt.textContent = w.name;
-      sel.appendChild(opt);
-    });
-    if (cur) sel.value = cur;
-  });
-}
-
-function initStatsFilters() {
-  var weekSel = document.getElementById('stats-week');
-  var workerSel = document.getElementById('stats-worker');
-  if (!weekSel || !workerSel) return;
-
-  var weeks = getAllWeekKeys().map(function(w) {
-    return { value: w, label: Schemes.formatWeekKey(w) };
-  });
-  fillSelectOptions(weekSel, weeks, _statsFilters.week, 'Все недели');
-
-  var workerSet = {};
-  Points.getList().forEach(function(p) {
-    if (p.worker) workerSet[p.worker] = true;
-  });
-  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
-  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
-  fillSelectOptions(workerSel, workers, _statsFilters.worker, 'Все сотрудники');
-
-  if (!weekSel._bound) {
-    weekSel._bound = true;
-    weekSel.addEventListener('change', function() {
-      _statsFilters.week = weekSel.value || 'all';
-      renderStatsPage();
-    });
-  }
-  if (!workerSel._bound) {
-    workerSel._bound = true;
-    workerSel.addEventListener('change', function() {
-      _statsFilters.worker = workerSel.value || 'all';
-      renderStatsPage();
-    });
-  }
-}
-
-function renderStatsPage() {
-  initStatsFilters();
-  var points = getFilteredPoints(_statsFilters);
-  var grid = document.getElementById('stats-grid');
-  var statusList = document.getElementById('stats-status-list');
-  var domainList = document.getElementById('stats-domain-list');
-  var statusChart = document.getElementById('stats-status-chart');
-  var intensityChart = document.getElementById('stats-intensity-chart');
-  if (!grid || !statusList || !domainList || !statusChart || !intensityChart) return;
-
-  var totalFlow = 0;
-  var withFlow = 0;
-  var withPhoto = 0;
-  var active = 0;
-  points.forEach(function(p) {
-    var flow = parseFloat(p.flowRate);
-    if (!isNaN(flow)) { totalFlow += flow; withFlow++; }
-    if (p.photoUrls && p.photoUrls[0]) withPhoto++;
-    if (p.status === 'Активная') active++;
-  });
-
-  var avgFlow = withFlow ? (totalFlow / withFlow) : null;
-
-  grid.innerHTML =
-    '<div class="stats-kpi"><div class="stats-kpi__label">Всего точек</div><div class="stats-kpi__value">' + points.length + '</div></div>' +
-    '<div class="stats-kpi"><div class="stats-kpi__label">Активные</div><div class="stats-kpi__value">' + active + '</div></div>' +
-    '<div class="stats-kpi"><div class="stats-kpi__label">С фото</div><div class="stats-kpi__value">' + withPhoto + '</div></div>' +
-    '<div class="stats-kpi"><div class="stats-kpi__label">Средний водоприток</div><div class="stats-kpi__value">' +
-      (avgFlow != null ? avgFlow.toFixed(2) : '—') + ' л/с<small>' +
-      (avgFlow != null ? lpsToM3h(avgFlow).toFixed(2) : '—') + ' м³/ч</small></div></div>' +
-    '<div class="stats-kpi"><div class="stats-kpi__label">Суммарный водоприток</div><div class="stats-kpi__value">' +
-      totalFlow.toFixed(2) + ' л/с<small>' + lpsToM3h(totalFlow).toFixed(2) + ' м³/ч</small></div></div>';
-
-  var byStatus = {};
-  var byDomain = {};
-  var byIntensity = {};
-  points.forEach(function(p) {
-    var s = p.status || 'Неизвестно';
-    byStatus[s] = (byStatus[s] || 0) + 1;
-    var d = p.domain || '—';
-    byDomain[d] = (byDomain[d] || 0) + 1;
-    var i = p.intensity || 'Не указана';
-    byIntensity[i] = (byIntensity[i] || 0) + 1;
-  });
-
-  function renderBreakdown(obj) {
-    var keys = Object.keys(obj).sort(function(a, b) { return obj[b] - obj[a]; });
-    if (!keys.length) return '<p class="form-hint">Нет данных по фильтру.</p>';
-    var html = '<div class="stats-list">';
-    keys.forEach(function(k) {
-      html += '<div class="stats-list-row"><span>' + k + '</span><b>' + obj[k] + '</b></div>';
-    });
-    html += '</div>';
-    return html;
-  }
-  statusList.innerHTML = renderBreakdown(byStatus);
-  domainList.innerHTML = renderBreakdown(byDomain);
-  renderPieChart(statusChart, byStatus, {
-    'Новая': '#4f8dff',
-    'Активная': '#39d98a',
-    'Иссякает': '#f3bf4a',
-    'Пересохла': '#ff6b6b',
-    'Неизвестно': '#8f9aae',
-  });
-  renderPieChart(intensityChart, byIntensity, {
-    'Слабая (капёж)': '#8bc8ff',
-    'Умеренная': '#39d98a',
-    'Сильная (поток)': '#f3bf4a',
-    'Очень сильная': '#ff8a4a',
-    'Не указана': '#8f9aae',
-  });
-}
-
-function renderPieChart(container, statsObj, palette) {
-  if (!container) return;
-  var keys = Object.keys(statsObj).filter(function(k) { return statsObj[k] > 0; });
-  var total = keys.reduce(function(acc, k) { return acc + statsObj[k]; }, 0);
-  if (!total) {
-    container.innerHTML = '<p class="form-hint">Нет данных по выбранному фильтру.</p>';
-    return;
-  }
-  var cx = 90, cy = 90, r = 70;
-  var offset = 0;
-  var circles = '';
-  keys.forEach(function(k) {
-    var val = statsObj[k];
-    var frac = val / total;
-    var len = frac * (2 * Math.PI * r);
-    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
-    circles += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r +
-      '" fill="none" stroke="' + color + '" stroke-width="22" stroke-linecap="butt" ' +
-      'stroke-dasharray="' + len.toFixed(2) + ' ' + (2 * Math.PI * r).toFixed(2) + '" ' +
-      'stroke-dashoffset="' + (-offset).toFixed(2) + '" transform="rotate(-90 90 90)"></circle>';
-    offset += len;
-  });
-  var legend = '<div class="pie-legend">';
-  keys.forEach(function(k) {
-    var color = (palette && palette[k]) ? palette[k] : '#9aa3b2';
-    legend += '<div class="pie-legend-row">' +
-      '<span class="pie-legend-name"><span class="pie-legend-dot" style="background:' + color + '"></span>' + k + '</span>' +
-      '<b>' + statsObj[k] + '</b></div>';
-  });
-  legend += '</div>';
-
-  container.innerHTML =
-    '<div class="pie-chart-wrap">' +
-      '<svg class="pie-chart-svg" viewBox="0 0 180 180" aria-label="Круговая диаграмма">' +
-        '<circle cx="90" cy="90" r="70" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="22"></circle>' +
-        circles +
-        '<text x="90" y="88" text-anchor="middle" fill="#ffd08b" style="font-size:22px;font-weight:800">' + total + '</text>' +
-        '<text x="90" y="106" text-anchor="middle" fill="#95a0af" style="font-size:11px">точек</text>' +
-      '</svg>' +
-      legend +
-    '</div>';
-}
-
-function renderWorkerManageList() {
-  var container = document.getElementById('workers-manage-list');
-  if (!container) return;
-  var workers = Workers.getList();
-  if (!workers.length) {
-    container.innerHTML = '<p class="empty-msg" style="padding:8px 0">Список пуст</p>';
-    return;
-  }
-  var html = '';
-  for (var i = 0; i < workers.length; i++) {
-    var w = workers[i];
-    html += '<div class="worker-manage-row" data-wid="' + w.id + '">';
-    html += '<input type="text" value="' + escAttr(w.name) + '">';
-    html += '<button class="btn-icon btn-icon-del" type="button">×</button>';
-    html += '</div>';
-  }
-  container.innerHTML = html;
-  container.querySelectorAll('.worker-manage-row').forEach(function(row) {
-    var wid = row.dataset.wid;
-    row.querySelector('input').addEventListener('change', function() {
-      renameWorker(wid, this.value);
-    });
-    row.querySelector('.btn-icon-del').addEventListener('click', function() {
-      removeWorker(wid);
-    });
-  });
-
-  // Кнопка добавить
-  var addBtn = document.getElementById('btn-add-worker');
-  if (addBtn && !addBtn._bound) {
-    addBtn._bound = true;
-    addBtn.addEventListener('click', addWorker);
-    document.getElementById('new-worker-name').addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); addWorker(); }
-    });
-  }
-}
-
-function addWorker() {
-  var inp  = document.getElementById('new-worker-name');
-  var name = inp ? inp.value.trim() : '';
-  if (!name) { alert('Введите имя'); return; }
-  Workers.add(name).then(function() {
-    if (inp) inp.value = '';
-    renderWorkers();
-    renderWorkerManageList();
-  });
-}
-
-function removeWorker(id) {
-  if (!confirm('Удалить сотрудника?')) return;
-  Workers.remove(id).then(function() {
-    renderWorkers();
-    renderWorkerManageList();
-  });
-}
-
-function renameWorker(id, newName) {
-  if (!newName.trim()) return;
-  var list = Workers.getList();
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].id === id) {
-      list[i].name      = newName.trim();
-      list[i].updatedAt = new Date().toISOString();
-      Storage.cacheWorkers(list);
-      Api.saveWorker(list[i]).catch(function(e) { console.warn(e); });
-      renderWorkers();
-      break;
-    }
-  }
-}
-
-// ── Форма добавления ──────────────────────────────────────
-function initAddForm() {
-  var form = document.getElementById('add-form');
-  if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveNewPoint(); });
-
-  var gps = document.getElementById('btn-gps');
-  if (gps) gps.addEventListener('click', function() { getGPSForForm('f'); });
-
-  // Пересчёт X/Y при ручном вводе lat/lon
-  var fLat = document.getElementById('f-lat');
-  var fLon = document.getElementById('f-lon');
-  if (fLat) fLat.addEventListener('change', function() { recalcLocalCoords('f'); });
-  if (fLon) fLon.addEventListener('change', function() { recalcLocalCoords('f'); });
-  var fFlow = document.getElementById('f-flowrate');
-  if (fFlow) fFlow.addEventListener('input', function() { updateFlowHint('f'); });
-  updateFlowHint('f');
-}
-
-function resetAddForm() {
-  var form = document.getElementById('add-form');
-  if (form) form.reset();
-  Photos.clearInput('f-photo', 'f-photo-preview');
-  updateFlowHint('f');
-}
-
-function saveNewPoint() {
-  var data      = readFormFields('f');
-  if (!data.pointNumber) { alert('Укажите номер точки'); return; }
-  var photoFile = Photos.getFile('f-photo');
-  AppState.syncing = true;
-  showLoader('Сохранение...');
-
-  // Шаг 1: создаём точку (postWithConfirm)
-  Points.create(data).then(function(savedPoint) {
-    if (!photoFile || !savedPoint || !savedPoint.id) return null;
-    // Шаг 2: загружаем фото (compress → uploadPhotoConfirmed → polling)
-    showLoader('Загрузка фото...');
-    return Photos.upload(photoFile, savedPoint.id).then(function(driveUrl) {
-      // Шаг 3: фиксируем URL в точке (уже записан сервером, обновляем кэш)
-      var pt = Points.getById(savedPoint.id);
-      if (pt) { pt.photoUrls = [driveUrl]; Storage.cachePoints(Points.getList()); }
-    }).catch(function(photoErr) {
-      // Фото не загрузилось — точка уже создана, показываем предупреждение
-      Diagnostics.setError('photo', photoErr.message);
-      alert('Точка сохранена, но фото не загрузилось: ' + photoErr.message);
-    });
-  }).then(function() {
-    resetAddForm();
-    return Points.load();
-  }).then(function() {
-    renderPointsList();
-    if (_mapSchemeImg) redrawMap();
-    switchTab('points');
-    Diagnostics.set('pointsLoaded', Points.getList().length);
-    AppState.syncing = false;
-    hideLoader();
-  }).catch(function(err) {
-    Diagnostics.setError('sync', err.message);
-    alert('Ошибка: ' + err.message);
-    AppState.syncing = false;
-    hideLoader();
-  });
-}
-
-// ── Модал редактирования ──────────────────────────────────
-function initEditModal() {
-  var closeBtn = document.getElementById('edit-modal-close');
-  if (closeBtn) closeBtn.addEventListener('click', closeEditModal);
-  var overlay  = document.getElementById('edit-modal');
-  if (overlay) overlay.addEventListener('click', function(e) {
-    if (e.target === overlay) closeEditModal();
-  });
-  var form = document.getElementById('edit-form');
-  if (form) form.addEventListener('submit', function(e) { e.preventDefault(); saveEditedPoint(); });
-  var delBtn = document.getElementById('e-delete-photo-btn');
-  if (delBtn) delBtn.addEventListener('click', deletePointPhoto);
-
-  // GPS кнопка в edit-форме
-  var gpsEditBtn = document.getElementById('e-btn-gps');
-  if (gpsEditBtn) gpsEditBtn.addEventListener('click', function() { getGPSForForm('e'); });
-
-  // При изменении lat/lon вручную — пересчитываем X/Y
-  var eLat = document.getElementById('e-lat');
-  var eLon = document.getElementById('e-lon');
-  if (eLat) eLat.addEventListener('change', function() { recalcLocalCoords('e'); });
-  if (eLon) eLon.addEventListener('change', function() { recalcLocalCoords('e'); });
-  var eFlow = document.getElementById('e-flowrate');
-  if (eFlow) eFlow.addEventListener('input', function() { updateFlowHint('e'); });
-
-  // Кнопка добавления точки на карте
-  var addMapBtn = document.getElementById('btn-map-add-point');
-  if (addMapBtn) addMapBtn.addEventListener('click', toggleMapAddMode);
-  Photos.initPhotoInput('e-photo', 'e-new-photo-preview');
-}
-
-function openEditModal(id) {
-  var p = Points.getById(id);
-  if (!p) return;
-  AppState.editingPointId = id;
-  document.getElementById('edit-modal-title').textContent = 'Редактирование #' + p.pointNumber;
-  setField('e-num',       p.pointNumber);
-  setField('e-lat',       p.lat      != null ? p.lat      : '');
-  setField('e-lon',       p.lon      != null ? p.lon      : '');
-  // X↔Y переставлены для отображения
-  if (p.xLocal != null || p.yLocal != null) {
-    setField('e-xlocal', p.xLocal != null ? Number(p.xLocal).toFixed(4) : '');
-    setField('e-ylocal', p.yLocal != null ? Number(p.yLocal).toFixed(4) : '');
-  } else {
-    setField('e-xlocal', '');
-    setField('e-ylocal', '');
-  }
-  setField('e-intensity', p.intensity   || '');
-  setField('e-flowrate',  p.flowRate != null ? p.flowRate : '');
-  updateFlowHint('e');
-  setField('e-color',     p.waterColor  || '');
-  setField('e-wall',      p.wall        || '');
-  setField('e-domain',    p.domain      || '');
-  setField('e-status',    p.status      || 'Новая');
-  setField('e-comment',   p.comment     || '');
-  setField('e-xlocal', p.xLocal != null ? Number(p.xLocal).toFixed(4) : '');
-  setField('e-ylocal', p.yLocal != null ? Number(p.yLocal).toFixed(4) : '');
-  updateWorkerSelects();
-  setField('e-worker', p.worker || '');
-  // Очищаем coord-info при редактировании
-  var coordInfo = document.getElementById('e-map-coord-info');
-  if (coordInfo) coordInfo.textContent = '';
-
-  // Текущее фото
-  var preview = document.getElementById('e-photo-preview');
-  if (preview) {
-    preview.innerHTML = '';
-    if (p.photoUrls && p.photoUrls[0]) {
-      var img = document.createElement('img');
-      img.alt = 'текущее фото';
-      img.style.cssText = 'max-width:100%;max-height:160px;border-radius:6px;display:block;margin-bottom:4px';
-      var lbl = document.createElement('p');
-      lbl.className   = 'form-hint';
-      lbl.textContent = 'Загрузка фото...';
-      preview.appendChild(img);
-      preview.appendChild(lbl);
-      Photos.setImageSrc(img, p.photoUrls[0]);
-      img.onload  = function() { lbl.textContent = 'Текущее фото'; };
-      img.onerror = function() { lbl.textContent = 'Фото недоступно'; };
-    }
-  }
-
-  // Кнопка удаления фото
-  var delBtn = document.getElementById('e-delete-photo-btn');
-  if (delBtn) delBtn.style.display = (p.photoUrls && p.photoUrls[0]) ? 'inline-flex' : 'none';
-
-  // Сбрасываем preview нового фото
-  Photos.clearInput('e-photo', 'e-new-photo-preview');
-
-  document.getElementById('edit-modal').style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-}
-
-function closeEditModal() {
-  document.getElementById('edit-modal').style.display = 'none';
-  document.body.style.overflow = '';
-  AppState.editingPointId = null;
-  var form = document.getElementById('edit-form');
-  if (form) form._mapCoords = null;
-  var title = document.getElementById('edit-modal-title');
-  if (title) title.textContent = 'Редактирование';
-  var submitBtn = form && form.querySelector('[type=submit]');
-  if (submitBtn) submitBtn.textContent = 'Сохранить изменения';
-  // Убираем строку с местными координатами
-  var coordInfo = document.getElementById('e-map-coord-info');
-  if (coordInfo) coordInfo.textContent = '';
-}
-
-function updateFlowHint(prefix) {
-  var flow = parseFloatOrNull(getField(prefix + '-flowrate'));
-  var hint = document.getElementById(prefix + '-flowrate-m3h');
-  if (!hint) return;
-  if (flow == null) {
-    hint.textContent = 'Эквивалент: — м³/ч';
-    return;
-  }
-  hint.textContent = 'Эквивалент: ' + lpsToM3h(flow).toFixed(2) + ' м³/ч';
-}
-
-function saveEditedPoint() {
-  var form      = document.getElementById('edit-form');
-  var mapCoords = form ? form._mapCoords : null;
-  var isMapAdd  = !AppState.editingPointId && !!mapCoords;
-  var id        = AppState.editingPointId;
-  var data      = readFormFields('e');
-  var photoFile = Photos.getFile('e-photo');
-  if (!data.pointNumber) { alert('Укажите номер точки'); return; }
-
-  // Подставляем координаты из клика по карте ПРИНУДИТЕЛЬНО
-  // (readFormFields применяет перестановку для GPS, а для карты нужны сырые значения)
-  if (mapCoords) {
-    data.xLocal = mapCoords.xLocal;
-    data.yLocal = mapCoords.yLocal;
-  }
-  // Если есть GPS но нет xLocal — вычисляем
-  if ((data.xLocal == null || data.yLocal == null) && data.lat && data.lon &&
-      typeof MapModule !== 'undefined') {
-    var sk = MapModule.wgs84ToXY(data.lat, data.lon);
-    data.xLocal = sk.x; data.yLocal = sk.y;
-  }
-
-  showLoader('Сохранение...');
-  closeEditModal();
-  AppState.syncing = true;
-  var chain;
-
-  if (isMapAdd) {
-    // Новая точка с карты: create → upload → redraw
-    chain = Points.create(data).then(function(savedPoint) {
-      if (!photoFile || !savedPoint || !savedPoint.id) return null;
-      showLoader('Загрузка фото...');
-      return Photos.upload(photoFile, savedPoint.id).catch(function(photoErr) {
-        Diagnostics.setError('photo', photoErr.message);
-        alert('Точка сохранена, но фото не загрузилось: ' + photoErr.message);
-      });
-    }).then(function() {
-      if (_mapSchemeImg) redrawMap();
-    });
-
-  } else if (photoFile) {
-    // Редактирование с заменой фото: upload → update с новым URL
-    showLoader('Загрузка фото...');
-    chain = Photos.upload(photoFile, id).then(function(driveUrl) {
-      data.photoUrls = [driveUrl];
-      return Points.update(id, data);
-    }).catch(function(photoErr) {
-      Diagnostics.setError('photo', photoErr.message);
-      alert('Фото не загрузилось: ' + photoErr.message);
-      // Сохраняем остальные поля без изменения фото
-      return Points.update(id, data);
-    });
-
-  } else {
-    // Редактирование без фото — сервер сохранит текущий photoUrls
-    chain = Points.update(id, data);
-  }
-
-  chain.then(function() {
-    return Points.load();
-  }).then(function() {
-    renderPointsList();
-    if (_mapSchemeImg) redrawMap();
-    Diagnostics.set('pointsLoaded', Points.getList().length);
-    AppState.syncing = false;
-    hideLoader();
-  }).catch(function(err) {
-    Diagnostics.setError('sync', err.message);
-    alert('Ошибка: ' + err.message);
-    AppState.syncing = false;
-    hideLoader();
-  });
-}
-
-function deletePointPhoto() {
-  if (!AppState.editingPointId) return;
-  if (!confirm('Удалить фото этой точки?')) return;
-  var id = AppState.editingPointId;
-  AppState.syncing = true;
-  showLoader('Удаление фото...');
-
-  // Сразу обновляем UI и кэш
-  var pt = Points.getById(id);
-  if (pt && pt.photoUrls && pt.photoUrls[0] && typeof Photos !== 'undefined') {
-    Photos.clearCache(pt.photoUrls[0]);
-  }
-  if (pt) { pt.photoUrls = []; Storage.cachePoints(Points.getList()); }
-  var preview = document.getElementById('e-photo-preview');
-  if (preview) preview.innerHTML = '';
-  var delBtn = document.getElementById('e-delete-photo-btn');
-  if (delBtn) delBtn.style.display = 'none';
-  renderPointsList();
-  hideLoader();
-  AppState.syncing = false;
-
-  // В фоне: удаляем с сервера и синхронизируем
-  Api.deletePhoto(id).then(function() {
-    return Points.update(id, { photoUrls: [] });
-  }).catch(function(err) {
-    Diagnostics.setError('photo', 'Удаление фото: ' + err.message);
-  });
-}
-
-// ── Удаление точки ────────────────────────────────────────
-function confirmDelete(id) {
-  var p = Points.getById(id);
-  if (!p) return;
-  if (!confirm('Удалить точку #' + p.pointNumber + '?')) return;
-  showLoader('Удаление...');
-  Points.remove(id).then(function() {
-    return Points.load();
-  }).then(function() {
-    renderPointsList();
-    Diagnostics.set('pointsLoaded', Points.getList().length);
-    hideLoader();
-  }).catch(function(err) {
-    Diagnostics.setError('sync', err.message);
-    alert('Ошибка: ' + err.message);
-    hideLoader();
-  });
+  if (name === 'workers')  renderWorkerManageList();
+  if (name === 'stats')    { renderStatsPage(); switchStatsTab('summary'); }
 }
 
 // ── Диагностика ───────────────────────────────────────────
+
 function initDiagButtons() {
   var s = document.getElementById('btn-sync-now');
   if (s) s.addEventListener('click', syncAll);
@@ -870,1266 +250,88 @@ function initDiagButtons() {
   if (f) f.addEventListener('click', function() { Points.flushQueue(); });
   var c = document.getElementById('btn-clear-cache');
   if (c) c.addEventListener('click', function() {
-    if (confirm('Очистить локальный кэш?')) { Storage.clearAll(); location.reload(); }
-  });
-}
-
-// ── GPS ──────────────────────────────────────────────────
-// getGPS заменён на getGPSForForm(prefix)
-
-// ── Карта ────────────────────────────────────────────────
-// ── Состояние карты ──────────────────────────────────────
-var _mapSchemeImg  = null;
-var _mapScale      = 1.0;   // текущий масштаб
-var _mapOffX       = 0;     // смещение X (pan)
-var _mapOffY       = 0;     // смещение Y (pan)
-var _mapAddMode    = false;  // режим добавления точки
-var _mapDragging   = false;
-var _mapDragStartX = 0;
-var _mapDragStartY = 0;
-var _mapFilters = { week: 'all', worker: 'all' };
-var _statsFilters = { week: 'all', worker: 'all' };
-var _mapUiState = { showFilter: true, showLegend: true };
-var _mapSelectedWeekKey = 'auto';
-
-function getMapActiveScheme() {
-  if (_mapSelectedWeekKey && _mapSelectedWeekKey !== 'auto') {
-    return Schemes.getByWeek(_mapSelectedWeekKey);
-  }
-  return Schemes.getCurrent();
-}
-
-function renderMapSchemeSelector() {
-  var sel = document.getElementById('map-scheme-select');
-  if (!sel) return;
-  var list = Schemes.getList().filter(function(s) { return !!s.weekKey; }).slice().sort(function(a, b) {
-    return (a.weekKey || '') > (b.weekKey || '') ? -1 : 1;
-  });
-  var html = '<option value="auto">Авто: текущая / последняя</option>';
-  list.forEach(function(s) {
-    html += '<option value="' + escAttr(s.weekKey) + '">' + Schemes.formatWeekKey(s.weekKey) + '</option>';
-  });
-  sel.innerHTML = html;
-  if (_mapSelectedWeekKey !== 'auto' && !Schemes.getByWeek(_mapSelectedWeekKey)) {
-    _mapSelectedWeekKey = 'auto';
-  }
-  sel.value = _mapSelectedWeekKey || 'auto';
-  if (!sel._bound) {
-    sel._bound = true;
-    sel.addEventListener('change', function() {
-      _mapSelectedWeekKey = sel.value || 'auto';
-      _mapSchemeImg = null;
-      renderMap();
-    });
-  }
-}
-
-function renderMap() {
-  var canvas   = document.getElementById('map-canvas');
-  var noScheme = document.getElementById('map-no-scheme');
-  if (!canvas) return;
-  renderMapSchemeSelector();
-
-  var scheme = getMapActiveScheme();
-  if (!scheme) {
-    canvas.style.display = 'none';
-    if (noScheme) noScheme.style.display = 'block';
-    return;
-  }
-  if (noScheme) noScheme.style.display = 'none';
-  canvas.style.display = 'block';
-
-  if (_mapSchemeImg) {
-    redrawMap();
-    return;
-  }
-
-  Schemes.getImage(scheme.weekKey).then(function(dataUrl) {
-    if (!dataUrl) {
-      canvas.style.display = 'none';
-      if (noScheme) noScheme.style.display = 'block';
-      return;
-    }
-    var img = new Image();
-    img.onload = function() {
-      _mapSchemeImg = img;
-      // Начальный масштаб: вписываем схему в контейнер
-      var wrap = document.getElementById('map-scheme-wrap');
-      if (wrap) {
-        var fitScale = Math.min(wrap.clientWidth / img.width, wrap.clientHeight / img.height);
-        var lim = getMapZoomLimits();
-        _mapScale = Math.max(lim.min, Math.min(lim.max, fitScale > 0 ? fitScale : 1));
-      } else {
-        var lim2 = getMapZoomLimits();
-        _mapScale = Math.max(lim2.min, Math.min(lim2.max, 1));
-      }
-      _mapOffX = 0;
-      _mapOffY = 0;
-      setupMapCanvas(canvas);
-      initMapFilters();
-      redrawMap();
-      initMapInteraction(canvas);
-      initMapZoomButtons();
-    };
-    img.src = dataUrl;
-  });
-}
-
-function getWeekKeyFromDate(iso) {
-  if (!iso) return null;
-  var d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  var dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  var dayNum = dt.getUTCDay() || 7;
-  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
-  var yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
-  var weekNo = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
-  return dt.getUTCFullYear() + '-W' + (weekNo < 10 ? '0' + weekNo : weekNo);
-}
-
-function getAllWeekKeys() {
-  var set = {};
-  Points.getList().forEach(function(p) {
-    var wk = getWeekKeyFromDate(p.createdAt);
-    if (wk) set[wk] = true;
-  });
-  Schemes.getList().forEach(function(s) {
-    if (s.weekKey) set[s.weekKey] = true;
-  });
-  return Object.keys(set).sort().reverse();
-}
-
-function fillSelectOptions(selectEl, options, selectedValue, fallbackLabel) {
-  if (!selectEl) return;
-  var html = '<option value="all">' + (fallbackLabel || 'Все') + '</option>';
-  options.forEach(function(opt) {
-    html += '<option value="' + escAttr(opt.value) + '">' + opt.label + '</option>';
-  });
-  selectEl.innerHTML = html;
-  selectEl.value = selectedValue || 'all';
-}
-
-function initMapFilters() {
-  var weekSel = document.getElementById('map-filter-week');
-  var workerSel = document.getElementById('map-filter-worker');
-  if (!weekSel || !workerSel) return;
-
-  var weeks = getAllWeekKeys().map(function(w) {
-    return { value: w, label: Schemes.formatWeekKey(w) };
-  });
-  fillSelectOptions(weekSel, weeks, _mapFilters.week, 'Все недели');
-
-  var workerSet = {};
-  Points.getList().forEach(function(p) {
-    if (p.worker) workerSet[p.worker] = true;
-  });
-  Workers.getList().forEach(function(w) { if (w.name) workerSet[w.name] = true; });
-  var workers = Object.keys(workerSet).sort().map(function(w) { return { value: w, label: w }; });
-  fillSelectOptions(workerSel, workers, _mapFilters.worker, 'Все сотрудники');
-
-  if (!weekSel._bound) {
-    weekSel._bound = true;
-    weekSel.addEventListener('change', function() {
-      _mapFilters.week = weekSel.value || 'all';
-      redrawMap();
-      updateMapLegendPoints();
-    });
-  }
-  if (!workerSel._bound) {
-    workerSel._bound = true;
-    workerSel.addEventListener('change', function() {
-      _mapFilters.worker = workerSel.value || 'all';
-      redrawMap();
-      updateMapLegendPoints();
-    });
-  }
-}
-
-function getFilteredPoints(filterState) {
-  var state = filterState || { week: 'all', worker: 'all' };
-  return Points.getList().filter(function(p) {
-    if (state.worker && state.worker !== 'all' && (p.worker || '') !== state.worker) return false;
-    if (state.week && state.week !== 'all') {
-      var pWeek = getWeekKeyFromDate(p.createdAt);
-      if (pWeek !== state.week) return false;
-    }
-    return true;
-  });
-}
-
-function getFilteredPointsForMap() {
-  return getFilteredPoints(_mapFilters);
-}
-
-function setupMapCanvas(canvas) {
-  // Canvas отображается через transform, размер = контейнер
-  var wrap = document.getElementById('map-scheme-wrap');
-  if (!wrap) return;
-  canvas.width  = wrap.clientWidth  || 400;
-  canvas.height = wrap.clientHeight || 600;
-}
-
-function getMapZoomLimits() {
-  if (typeof MapModule === 'undefined' || !MapModule.getStyleConfig) return { min: 0.3, max: 6 };
-  var cfg = MapModule.getStyleConfig();
-  var z = cfg.zoom || {};
-  return { min: z.min || 0.3, max: z.max || 6 };
-}
-
-function clampMapTransform() {
-  var canvas = document.getElementById('map-canvas');
-  if (!canvas || !_mapSchemeImg) return;
-  var minX = canvas.width - (_mapSchemeImg.width * _mapScale);
-  var minY = canvas.height - (_mapSchemeImg.height * _mapScale);
-  if (_mapSchemeImg.width * _mapScale <= canvas.width) {
-    _mapOffX = (canvas.width - _mapSchemeImg.width * _mapScale) / 2;
-  } else {
-    _mapOffX = Math.min(0, Math.max(minX, _mapOffX));
-  }
-  if (_mapSchemeImg.height * _mapScale <= canvas.height) {
-    _mapOffY = (canvas.height - _mapSchemeImg.height * _mapScale) / 2;
-  } else {
-    _mapOffY = Math.min(0, Math.max(minY, _mapOffY));
-  }
-}
-
-function redrawMap() {
-  var canvas = document.getElementById('map-canvas');
-  if (!canvas || !_mapSchemeImg) return;
-  clampMapTransform();
-  var ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.translate(_mapOffX, _mapOffY);
-  ctx.scale(_mapScale, _mapScale);
-  ctx.drawImage(_mapSchemeImg, 0, 0);
-  // Домены — под точками
-  if (typeof Domens !== 'undefined') {
-    Domens.draw(ctx, _mapSchemeImg.width, _mapSchemeImg.height);
-  }
-  if (typeof MapModule !== 'undefined') {
-    MapModule.drawPoints(ctx, getFilteredPointsForMap(), _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
-  }
-  ctx.restore();
-  // Обновляем масштаб в статус-баре
-  var sbScale = document.getElementById('sb-scale');
-  if (sbScale) sbScale.textContent = 'x' + _mapScale.toFixed(2);
-}
-
-function initMapInteraction(canvas) {
-  if (canvas._mapBound) return;
-  canvas._mapBound = true;
-
-  // ── Колесо мыши — зум ───────────────────────────────────
-  canvas.addEventListener('wheel', function(e) {
-    e.preventDefault();
-    var rect   = canvas.getBoundingClientRect();
-    var mouseX = e.clientX - rect.left;
-    var mouseY = e.clientY - rect.top;
-    var delta  = e.deltaY > 0 ? 0.85 : 1.18;
-    var limits = getMapZoomLimits();
-    var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * delta));
-    // Зум относительно точки курсора
-    _mapOffX = mouseX - (mouseX - _mapOffX) * (newScale / _mapScale);
-    _mapOffY = mouseY - (mouseY - _mapOffY) * (newScale / _mapScale);
-    _mapScale = newScale;
-    redrawMap();
-  }, { passive: false });
-
-  // ── Touch — pinch zoom + pan ─────────────────────────────
-  var lastTouchDist = 0;
-  var lastTouchX = 0;
-  var lastTouchY = 0;
-
-  canvas.addEventListener('touchstart', function(e) {
-    if (e.touches.length === 2) {
-      var dx = e.touches[0].clientX - e.touches[1].clientX;
-      var dy = e.touches[0].clientY - e.touches[1].clientY;
-      lastTouchDist = Math.sqrt(dx*dx + dy*dy);
-    } else if (e.touches.length === 1) {
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
-      _mapDragging = true;
-    }
-  }, { passive: true });
-
-  canvas.addEventListener('touchmove', function(e) {
-    e.preventDefault();
-    if (e.touches.length === 2) {
-      var dx   = e.touches[0].clientX - e.touches[1].clientX;
-      var dy   = e.touches[0].clientY - e.touches[1].clientY;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      if (lastTouchDist > 0) {
-        var ratio    = dist / lastTouchDist;
-        var midX     = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-        var midY     = (e.touches[0].clientY + e.touches[1].clientY) / 2;
-        var rect     = canvas.getBoundingClientRect();
-        var mx       = midX - rect.left;
-        var my       = midY - rect.top;
-    var limits = getMapZoomLimits();
-    var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * ratio));
-        _mapOffX = mx - (mx - _mapOffX) * (newScale / _mapScale);
-        _mapOffY = my - (my - _mapOffY) * (newScale / _mapScale);
-        _mapScale = newScale;
-        redrawMap();
-      }
-      lastTouchDist = dist;
-    } else if (e.touches.length === 1 && _mapDragging && !_mapAddMode) {
-      var dx = e.touches[0].clientX - lastTouchX;
-      var dy = e.touches[0].clientY - lastTouchY;
-      _mapOffX += dx;
-      _mapOffY += dy;
-      lastTouchX = e.touches[0].clientX;
-      lastTouchY = e.touches[0].clientY;
-      redrawMap();
-    }
-  }, { passive: false });
-
-  canvas.addEventListener('touchend', function(e) {
-    if (e.touches.length < 2) lastTouchDist = 0;
-    if (e.touches.length === 0) _mapDragging = false;
-  }, { passive: true });
-
-  // ── Mouse drag — pan ─────────────────────────────────────
-  canvas.addEventListener('mousedown', function(e) {
-    if (_mapAddMode) return;
-    _mapDragging   = true;
-    _mapDragStartX = e.clientX - _mapOffX;
-    _mapDragStartY = e.clientY - _mapOffY;
-    canvas.style.cursor = 'grabbing';
-  });
-  canvas.addEventListener('mousemove', function(e) {
-    var rect = canvas.getBoundingClientRect();
-    var cx   = e.clientX - rect.left;
-    var cy   = e.clientY - rect.top;
-
-    if (_mapDragging && !_mapAddMode) {
-      _mapOffX = e.clientX - _mapDragStartX;
-      _mapOffY = e.clientY - _mapDragStartY;
-      redrawMap();
-      hideMapTooltip();
-      return;
-    }
-
-    // Обновляем статус-бар с координатами курсора
-    if (_mapSchemeImg && typeof MapModule !== 'undefined') {
-      var imgX2 = (cx - _mapOffX) / _mapScale;
-      var imgY2 = (cy - _mapOffY) / _mapScale;
-      if (imgX2 >= 0 && imgX2 <= _mapSchemeImg.width &&
-          imgY2 >= 0 && imgY2 <= _mapSchemeImg.height) {
-        var loc = MapModule.pixelToXY(imgX2, imgY2, _mapSchemeImg.width, _mapSchemeImg.height);
-        var wgs = MapModule.xyToWgs84(loc.x, loc.y);
-        var sbEl = document.getElementById('sb-coords');
-        if (sbEl) {
-          sbEl.textContent =
-            'X: ' + loc.x.toFixed(4) + '  Y: ' + loc.y.toFixed(4) +
-            '  |  ' + wgs.lat.toFixed(5) + '°N  ' + wgs.lon.toFixed(5) + '°E';
-        }
-      }
-    }
-
-    // Tooltip при наведении на точку
-    if (!_mapAddMode && _mapSchemeImg && typeof MapModule !== 'undefined') {
-      var imgX = (cx - _mapOffX) / _mapScale;
-      var imgY = (cy - _mapOffY) / _mapScale;
-      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
-      if (p) {
-        showMapTooltip(p, e.clientX, e.clientY);
-      } else {
-        hideMapTooltip();
-      }
-    }
-  });
-  canvas.addEventListener('mouseup', function() {
-    _mapDragging = false;
-    canvas.style.cursor = _mapAddMode ? 'crosshair' : 'grab';
-  });
-  canvas.addEventListener('mouseleave', function() {
-    _mapDragging = false;
-    hideMapTooltip();
-  });
-
-  // Tooltip при наведении
-  canvas.addEventListener('mousemove', function(e) {
-    if (_mapDragging || _mapAddMode || !_mapSchemeImg) {
-      hideMapTooltip();
-      return;
-    }
-    var rect = canvas.getBoundingClientRect();
-    var cx   = e.clientX - rect.left;
-    var cy   = e.clientY - rect.top;
-    var imgX = (cx - _mapOffX) / _mapScale;
-    var imgY = (cy - _mapOffY) / _mapScale;
-    if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
-      if (p) {
-        showMapTooltip(p, e.clientX, e.clientY);
-      } else {
-        hideMapTooltip();
-      }
-    }
-  });
-
-  canvas.style.cursor = 'grab';
-
-  // ── Клик — добавить точку или открыть карточку ───────────
-  canvas.addEventListener('click', function(e) {
-    if (_mapDragging) return;
-    hideMapTooltip();
-    var rect   = canvas.getBoundingClientRect();
-    var cx     = e.clientX - rect.left;
-    var cy     = e.clientY - rect.top;
-    // Обратное преобразование: экран → координаты схемы
-    var imgX   = (cx - _mapOffX) / _mapScale;
-    var imgY   = (cy - _mapOffY) / _mapScale;
-
-    if (_mapAddMode && typeof MapModule !== 'undefined') {
-      // Вычисляем локальные координаты из пикселей
-      var local = MapModule.pixelToXY(imgX, imgY, _mapSchemeImg.width, _mapSchemeImg.height);
-      openAddPointModal(local.x, local.y);
-      return;
-    }
-
-    if (typeof MapModule !== 'undefined') {
-      var p = MapModule.findPointAt(imgX, imgY, getFilteredPointsForMap(),
-                _mapSchemeImg.width, _mapSchemeImg.height, _mapScale);
-      if (p) showMapPointCard(p);
+    if (confirm('Очистить локальный кэш?')) {
+      Toast.progress('cache', 'Очистка кэша...');
+      setTimeout(function() { Storage.clearAll(); location.reload(); }, 400);
     }
   });
 }
 
+// ── Подвкладки аналитики ──────────────────────────────────
 
-
-function initMapLegend() {
-  // Кнопка легенды
-  var btn = document.getElementById('btn-legend-toggle');
-  if (btn && !btn._bound) {
-    btn._bound = true;
-    btn.addEventListener('click', function() {
-      var panel = document.getElementById('map-legend-panel');
-      if (!panel) return;
-      var collapsed = panel.classList.toggle('collapsed');
-      btn.textContent = collapsed ? '+' : '−';
-    });
-  }
-  // Кнопка доменов
-  var dBtn = document.getElementById('btn-domens-toggle');
-  if (dBtn && !dBtn._bound) {
-    dBtn._bound = true;
-    dBtn.addEventListener('click', function() {
-      if (typeof Domens === 'undefined') return;
-      var visible = Domens.toggle();
-      dBtn.style.background  = visible ? 'var(--blue)' : '';
-      dBtn.style.color       = visible ? '#fff'        : '';
-      dBtn.style.borderColor = visible ? 'var(--blue)' : '';
-      if (_mapSchemeImg) redrawMap();
-    });
-    // По умолчанию домены включены — подсвечиваем кнопку
-    dBtn.style.background  = 'var(--blue)';
-    dBtn.style.color       = '#fff';
-    dBtn.style.borderColor = 'var(--blue)';
-  }
-
-  // Режим отображения маркеров
-  var modeWrap = document.getElementById('map-mode-switch');
-  if (modeWrap && !modeWrap._bound) {
-    modeWrap._bound = true;
-    modeWrap.querySelectorAll('input[name=\"map-marker-mode\"]').forEach(function(input) {
-      input.checked = (typeof MapModule !== 'undefined' && MapModule.getMarkerMode() === input.value);
-      input.addEventListener('change', function() {
-        if (!this.checked || typeof MapModule === 'undefined') return;
-        MapModule.setMarkerMode(this.value);
-        MapModule.resetMarkerStyleCache();
-        renderMapModeLegend();
-        redrawMap();
-      });
-    });
-  }
-
-  var filterBtn = document.getElementById('btn-map-filter-toggle');
-  if (filterBtn && !filterBtn._bound) {
-    filterBtn._bound = true;
-    filterBtn.addEventListener('click', function() {
-      _mapUiState.showFilter = !_mapUiState.showFilter;
-      applyMapSectionVisibility();
-    });
-  }
-  var legendBtn = document.getElementById('btn-map-legend-section-toggle');
-  if (legendBtn && !legendBtn._bound) {
-    legendBtn._bound = true;
-    legendBtn.addEventListener('click', function() {
-      _mapUiState.showLegend = !_mapUiState.showLegend;
-      applyMapSectionVisibility();
-    });
-  }
-  renderMapModeLegend();
-  applyMapSectionVisibility();
-}
-
-function applyMapSectionVisibility() {
-  var filterParts = ['map-filter-week-section', 'map-filter-worker-section'];
-  filterParts.forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.style.display = _mapUiState.showFilter ? '' : 'none';
-  });
-  var modeSection = document.getElementById('map-mode-section');
-  if (modeSection) modeSection.style.display = _mapUiState.showLegend ? '' : 'none';
-  var legendSection = document.getElementById('map-legend-section');
-  if (legendSection) legendSection.style.display = _mapUiState.showLegend ? '' : 'none';
-  var legendPoints = document.getElementById('map-legend-points');
-  if (legendPoints) legendPoints.style.display = _mapUiState.showLegend ? '' : 'none';
-
-  var filterBtn = document.getElementById('btn-map-filter-toggle');
-  if (filterBtn) {
-    filterBtn.style.background = _mapUiState.showFilter ? 'var(--blue)' : '';
-    filterBtn.style.color = _mapUiState.showFilter ? '#fff' : '';
-    filterBtn.style.borderColor = _mapUiState.showFilter ? 'var(--blue)' : '';
-  }
-  var legendBtn = document.getElementById('btn-map-legend-section-toggle');
-  if (legendBtn) {
-    legendBtn.style.background = _mapUiState.showLegend ? 'var(--blue)' : '';
-    legendBtn.style.color = _mapUiState.showLegend ? '#fff' : '';
-    legendBtn.style.borderColor = _mapUiState.showLegend ? 'var(--blue)' : '';
-  }
-}
-
-function renderMapModeLegend() {
-  var container = document.getElementById('map-mode-legend');
-  if (!container || typeof MapModule === 'undefined') return;
-  var cfg = MapModule.getStyleConfig();
-  var mode = MapModule.getMarkerMode();
-  var html = '';
-
-  function statusRows() {
-    var rows = '';
-    ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
-      var c = cfg.statusColors[s] || '#777';
-      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + c + '\"></span><span>' + s + '</span></div>';
-    });
-    return rows;
-  }
-  function intensityRows() {
-    var rows = '<div class=\"map-legend-subtitle\">Интенсивность (размер маркера)</div>';
-    [
-      ['Слабая (капёж)', 'i-weak'],
-      ['Умеренная', 'i-mid'],
-      ['Сильная (поток)', 'i-strong'],
-      ['Очень сильная', 'i-vstrong']
-    ].forEach(function(pair) {
-      rows += '<div class=\"map-legend-item\"><span class=\"map-legend-dot map-intensity-dot ' + pair[1] +
-        '\"></span><span>' + pair[0] + '</span></div>';
-    });
-    return rows;
-  }
-
-  if (mode === 'simple') {
-    html += '<div class=\"map-legend-subtitle\">Simple</div>';
-    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.simpleColor + '\"></span><span>Единый цвет точек</span></div>';
-  } else if (mode === 'status') {
-    html += '<div class=\"map-legend-subtitle\">Status</div>' + statusRows();
-  } else if (mode === 'intensity') {
-    html += '<div class=\"map-legend-subtitle\">Intensity</div>';
-    html += '<div class=\"map-legend-item\"><span class=\"map-legend-dot\" style=\"background:' + cfg.intensityColor + '\"></span><span>Единый цвет</span></div>';
-    html += intensityRows();
-  } else {
-    html += '<div class=\"map-legend-subtitle\">Combined</div>';
-    html += '<div class=\"form-hint\" style=\"margin-bottom:6px\">Размер = интенсивность, badge = статус</div>';
-    html += intensityRows();
-    html += '<hr style=\"border:none;border-top:1px solid var(--line-2);margin:8px 0\">';
-    html += statusRows();
-  }
-  container.innerHTML = html;
-}
-
-function updateMapLegendPoints() {
-  var container = document.getElementById('map-legend-points');
-  if (!container) return;
-  var points = getFilteredPointsForMap();
-  var byStatus = {};
-  var byIntensity = {};
-  points.forEach(function(p) {
-    var s = p.status || 'Неизвестно';
-    byStatus[s] = (byStatus[s] || 0) + 1;
-    var it = p.intensity || 'Не указана';
-    byIntensity[it] = (byIntensity[it] || 0) + 1;
-  });
-  var html = '<div style="margin-bottom:8px">Показано точек: <b>' + points.length + '</b></div>';
-  html += '<div style="margin-bottom:8px;font-size:10px;color:var(--txt-3)">Фильтр: ' +
-          (_mapFilters.week === 'all' ? 'все недели' : Schemes.formatWeekKey(_mapFilters.week)) +
-          ' • ' + (_mapFilters.worker === 'all' ? 'все сотрудники' : _mapFilters.worker) + '</div>';
-  html += '<div style="display:grid;gap:4px">';
-  ['Новая', 'Активная', 'Иссякает', 'Пересохла'].forEach(function(s) {
-    html += '<div style="display:flex;justify-content:space-between"><span>' + s + '</span><b>' + (byStatus[s] || 0) + '</b></div>';
-  });
-  html += '</div>';
-  html += '<br><b>По интенсивности</b><br>';
-  ['Слабая (капёж)', 'Умеренная', 'Сильная (поток)', 'Очень сильная', 'Не указана'].forEach(function(it) {
-    if (byIntensity[it]) {
-      html += '<div style="display:flex;justify-content:space-between"><span>' + it + '</span><b>' + byIntensity[it] + '</b></div>';
-    }
-  });
-  html += '</div>';
-  // Добавляем счётчики по доменам
-  if (typeof Domens !== 'undefined') {
-    html += '<br><b>По доменам</b><br>';
-    var byDomen = {};
-    points.forEach(function(p) {
-      var d = p.domain || '—';
-      byDomen[d] = (byDomen[d] || 0) + 1;
-    });
-    Object.keys(byDomen).sort(function(a, b) { return byDomen[b] - byDomen[a]; }).forEach(function(d) {
-      html += '<div style="display:flex;justify-content:space-between"><span>' + d + '</span><b>' + byDomen[d] + '</b></div>';
-    });
-  }
-  container.innerHTML = html;
-}
-
-function initMapZoomButtons() {
-  var wrap = document.getElementById('map-scheme-wrap');
-  if (!wrap || wrap.querySelector('.map-zoom-controls')) return;
-
-  var controls = document.createElement('div');
-  controls.className = 'map-zoom-controls';
-  controls.innerHTML =
-    '<button class="map-zoom-btn" id="map-zoom-in" title="Приблизить">+</button>' +
-    '<button class="map-zoom-btn" id="map-zoom-out" title="Отдалить">−</button>' +
-    '<button class="map-zoom-btn" id="map-zoom-fit" title="По размеру" style="font-size:13px">⊡</button>';
-  wrap.appendChild(controls);
-
-  document.getElementById('map-zoom-in').addEventListener('click', function() {
-    zoomMap(1.3);
-  });
-  document.getElementById('map-zoom-out').addEventListener('click', function() {
-    zoomMap(0.77);
-  });
-  document.getElementById('map-zoom-fit').addEventListener('click', function() {
-    fitMap();
-  });
-}
-
-function zoomMap(factor) {
-  var canvas = document.getElementById('map-canvas');
-  if (!canvas) return;
-  var cx = canvas.width  / 2;
-  var cy = canvas.height / 2;
-  var limits = getMapZoomLimits();
-  var newScale = Math.max(limits.min, Math.min(limits.max, _mapScale * factor));
-  _mapOffX = cx - (cx - _mapOffX) * (newScale / _mapScale);
-  _mapOffY = cy - (cy - _mapOffY) * (newScale / _mapScale);
-  _mapScale = newScale;
-  redrawMap();
-}
-
-function fitMap() {
-  if (!_mapSchemeImg) return;
-  var canvas = document.getElementById('map-canvas');
-  if (!canvas) return;
-  var fitScale = Math.min(canvas.width / _mapSchemeImg.width, canvas.height / _mapSchemeImg.height);
-  var lim = getMapZoomLimits();
-  _mapScale = Math.max(lim.min, Math.min(lim.max, fitScale > 0 ? fitScale : 1));
-  _mapOffX  = (canvas.width  - _mapSchemeImg.width  * _mapScale) / 2;
-  _mapOffY  = (canvas.height - _mapSchemeImg.height * _mapScale) / 2;
-  redrawMap();
-}
-
-// ── Режим добавления точки ────────────────────────────────
-function toggleMapAddMode() {
-  _mapAddMode = !_mapAddMode;
-  var canvas = document.getElementById('map-canvas');
-  var btn    = document.getElementById('btn-map-add-point');
-  var hint   = document.getElementById('map-add-hint');
-  if (canvas) {
-    canvas.classList.toggle('adding-mode', _mapAddMode);
-    canvas.style.cursor = _mapAddMode ? 'crosshair' : 'grab';
-  }
-  if (btn) {
-    btn.style.background   = _mapAddMode ? 'var(--blue)' : '';
-    btn.style.color        = _mapAddMode ? '#fff'        : '';
-    btn.style.borderColor  = _mapAddMode ? 'var(--blue)' : '';
-    btn.style.fontWeight   = _mapAddMode ? '700'         : '';
-    btn.textContent        = _mapAddMode ? '🎯 Выберите место...' : '➕ Добавить точку';
-  }
-  if (hint) hint.style.display = _mapAddMode ? 'inline' : 'none';
-}
-
-function openAddPointModal(xLocal, yLocal) {
-  _mapAddMode = false;
-  var canvas = document.getElementById('map-canvas');
-  var btn    = document.getElementById('btn-map-add-point');
-  var hint   = document.getElementById('map-add-hint');
-  if (canvas) { canvas.classList.remove('adding-mode'); canvas.style.cursor = 'grab'; }
-  if (btn)    { btn.style.background = ''; btn.style.color = ''; btn.style.borderColor = ''; btn.style.fontWeight = ''; btn.textContent = '➕ Добавить точку'; }
-  if (hint)   hint.style.display = 'none';
-
-  AppState.editingPointId = null;
-  ['e-num','e-intensity','e-flowrate','e-color','e-wall','e-comment']
-    .forEach(function(id) { setField(id, ''); });
-  updateFlowHint('e');
-  setField('e-status', 'Новая');
-  updateWorkerSelects();
-  // Координаты из клика по карте — pixelToLocal уже даёт правильный порядок:
-  //   xLocal = 45850..47350 (горизонталь, растёт слева направо) → поле X
-  //   yLocal = 15800..17350 (вертикаль,  растёт сверху вниз)    → поле Y
-  if (typeof MapModule !== 'undefined') {
-    setField('e-xlocal', xLocal.toFixed(4));
-    setField('e-ylocal', yLocal.toFixed(4));
-    var wgs = MapModule.xyToWgs84(xLocal, yLocal);
-    if (wgs && wgs.lat) {
-      setField('e-lat', wgs.lat.toFixed(7));
-      setField('e-lon', wgs.lon.toFixed(7));
-    }
-    var coordInfo = document.getElementById('e-map-coord-info');
-    if (coordInfo) coordInfo.textContent = 'X: ' + xLocal.toFixed(4) + '  Y: ' + yLocal.toFixed(4) + ' (из карты)';
-  }
-
-  var preview = document.getElementById('e-photo-preview');
-  if (preview) preview.innerHTML = '';
-  Photos.clearInput('e-photo', 'e-new-photo-preview');
-  var delBtn = document.getElementById('e-delete-photo-btn');
-  if (delBtn) delBtn.style.display = 'none';
-
-  var form = document.getElementById('edit-form');
-  form._mapCoords = { xLocal: xLocal, yLocal: yLocal };
-
-  document.getElementById('edit-modal-title').textContent = 'Новая точка на карте';
-  var submitBtn = document.querySelector('#edit-form [type=submit]');
-  if (submitBtn) submitBtn.textContent = 'Сохранить точку';
-
-  // Автоопределяем домен ПОСЛЕДНИМ — после всех инициализаций
-  (function() {
-    var domainEl = document.getElementById('e-domain');
-    if (!domainEl || typeof Domens === 'undefined') { return; }
-    var autoDomen = Domens.findDomenAt(xLocal, yLocal);
-    if (autoDomen) {
-      domainEl.value = autoDomen;
-    }
-  })();
-
-  document.getElementById('edit-modal').style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-  setTimeout(function() {
-    var f = document.getElementById('e-num');
-    if (f) f.focus();
-  }, 150);
-}
-
-
-// ── Tooltip при наведении ────────────────────────────────
-var _tooltipEl = null;
-
-function showMapTooltip(p, clientX, clientY) {
-  if (!_tooltipEl) {
-    _tooltipEl = document.createElement('div');
-    _tooltipEl.className = 'map-tooltip';
-    document.body.appendChild(_tooltipEl);
-  }
-  var color = (typeof MapModule !== 'undefined')
-    ? (MapModule.STATUS_COLORS[p.status] || '#666') : '#666';
-
-  _tooltipEl.innerHTML =
-    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">' +
-    '<span style="width:10px;height:10px;border-radius:50%;background:' + color +
-    ';border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.3);flex-shrink:0"></span>' +
-    '<strong>#' + (p.pointNumber || '?') + '</strong>' +
-    '<span style="color:' + color + ';font-size:11px">' + (p.status || '') + '</span>' +
-    '</div>' +
-    (p.worker    ? '<div>👤 ' + p.worker + '</div>' : '') +
-    (p.flowRate != null ? '<div>💧 ' + formatFlowBothUnits(p.flowRate) + '</div>' : '') +
-    (p.intensity ? '<div>' + p.intensity + '</div>' : '') +
-    '<div style="color:var(--gray-600);font-size:11px">' + formatDate(p.createdAt) + '</div>';
-
-  var tw = 180, th = 90;
-  var left = clientX + 12;
-  var top  = clientY - 10;
-  if (left + tw > window.innerWidth)  left = clientX - tw - 12;
-  if (top  + th > window.innerHeight) top  = clientY - th - 10;
-  _tooltipEl.style.left    = left + 'px';
-  _tooltipEl.style.top     = top  + 'px';
-  _tooltipEl.style.display = 'block';
-}
-
-function hideMapTooltip() {
-  if (_tooltipEl) _tooltipEl.style.display = 'none';
-}
-
-function showMapPointCard(p) {
-  var existing = document.getElementById('map-point-card');
-  if (existing) existing.remove();
-
-  // Статусный цвет
-  var statusColors = (typeof MapModule !== 'undefined') ? MapModule.STATUS_COLORS : {};
-  var statusColor  = statusColors[p.status] || 'var(--gray-400)';
-
-  // Строим HTML карточки
-  var hasPhoto = p.photoUrls && p.photoUrls[0];
-  var html =
-    '<div class="mpc-header">' +
-      '<div class="mpc-title">' +
-        '<span class="mpc-num">#' + (p.pointNumber || '—') + '</span>' +
-        '<span class="mpc-status" style="background:' + statusColor + '">' + (p.status || '') + '</span>' +
-      '</div>' +
-      '<button class="mpc-close" id="map-card-close">✕</button>' +
-    '</div>';
-
-  // Фото
-  if (hasPhoto) {
-    html += '<div class="mpc-photo-wrap"><img class="mpc-photo" id="mpc-photo-img" src="" alt="фото"></div>';
-  }
-
-  html += '<div class="mpc-body">';
-  html += '<div class="mpc-row"><span class="mpc-label">Сотрудник</span><span>' + (p.worker || '—') + '</span></div>';
-  html += '<div class="mpc-row"><span class="mpc-label">Дата</span><span>' + formatDate(p.createdAt) + '</span></div>';
-  if (p.domain)     html += '<div class="mpc-row"><span class="mpc-label">Домен</span><span>' + p.domain + '</span></div>';
-  if (p.wall)       html += '<div class="mpc-row"><span class="mpc-label">Борт</span><span>' + p.wall + '</span></div>';
-  if (p.intensity)  html += '<div class="mpc-row"><span class="mpc-label">Интенсивность</span><span>' + p.intensity + '</span></div>';
-  if (p.flowRate != null) html += '<div class="mpc-row"><span class="mpc-label">Дебит</span><span>' + formatFlowBothUnits(p.flowRate) + '</span></div>';
-  if (p.waterColor) html += '<div class="mpc-row"><span class="mpc-label">Цвет воды</span><span>' + p.waterColor + '</span></div>';
-  if (p.xLocal != null) {
-    html += '<div class="mpc-row"><span class="mpc-label">X / Y</span><span>' +
-      Number(p.xLocal).toFixed(2) + ' / ' + Number(p.yLocal).toFixed(2) + '</span></div>';
-  }
-  if (p.comment)    html += '<div class="mpc-comment">' + p.comment + '</div>';
-  html += '</div>';
-
-  html +=
-    '<div class="mpc-actions">' +
-      '<button class="btn btn-sm btn-outline mpc-edit" data-pid="' + p.id + '">✏️ Изменить</button>' +
-      '<button class="btn btn-sm btn-danger  mpc-del"  data-pid="' + p.id + '">🗑 Удалить</button>' +
-    '</div>';
-
-  var card = document.createElement('div');
-  card.id = 'map-point-card';
-  card.className = 'map-point-card';
-  card.innerHTML = html;
-
-  // Карточка внутри контейнера карты (position:relative)
-  var mapWrap = document.getElementById('map-scheme-wrap');
-  if (!mapWrap) mapWrap = document.getElementById('page-map');
-  mapWrap.appendChild(card);
-
-  // Загружаем фото из кэша
-  if (hasPhoto) {
-    var imgEl = document.getElementById('mpc-photo-img');
-    if (imgEl) Photos.setImageSrc(imgEl, p.photoUrls[0]);
-  }
-
-  document.getElementById('map-card-close').addEventListener('click', function() { card.remove(); });
-  card.querySelector('.mpc-edit').addEventListener('click', function() {
-    card.remove();
-    openEditModal(this.dataset.pid);
-  });
-  card.querySelector('.mpc-del').addEventListener('click', function() {
-    var pid = this.dataset.pid;
-    if (!confirm('Удалить точку #' + (p.pointNumber || pid) + '?')) return;
-    card.remove();
-    AppState.syncing = true;
-    Points.remove(pid).then(function() {
-      return Points.load();
-    }).then(function() {
-      renderPointsList();
-      if (_mapSchemeImg) redrawMap();
-      AppState.syncing = false;
-    }).catch(function(err) {
-      alert('Ошибка удаления: ' + err.message);
-      AppState.syncing = false;
-    });
-  });
-}
-
-// ── Настройки — схемы ────────────────────────────────────
-function initSettings() {
-  refreshSchemesData();
-  renderSettingsColors();
-  initSettingsTabs();
-
-  var fileInput = document.getElementById('scheme-file');
-  if (fileInput && !fileInput._bound) {
-    fileInput._bound = true;
-    fileInput.addEventListener('change', function() {
-      var file = fileInput.files && fileInput.files[0];
-      var preview = document.getElementById('scheme-preview');
-      if (!preview) return;
-      if (!file) { preview.innerHTML = ''; return; }
-      var url = URL.createObjectURL(file);
-      var img = document.createElement('img');
-      img.src = url;
-      img.onload = function() { URL.revokeObjectURL(url); };
-      preview.innerHTML = '';
-      preview.appendChild(img);
-    });
-  }
-
-  var uploadBtn = document.getElementById('btn-upload-scheme');
-  if (uploadBtn && !uploadBtn._bound) {
-    uploadBtn._bound = true;
-    uploadBtn.addEventListener('click', uploadScheme);
-  }
-}
-
-function refreshSchemesData() {
-  renderSettingsSchemes();
-  if (typeof Schemes === 'undefined' || !Schemes.load) return;
-  Schemes.load().then(function() {
-    renderSettingsSchemes();
-    renderMapSchemeSelector();
-    if (AppState.currentTab === 'map') {
-      _mapSchemeImg = null;
-      renderMap();
-    }
-  }).catch(function() {
-    renderSettingsSchemes();
-  });
-}
-
-function initSettingsTabs() {
-  var tabs = document.querySelectorAll('[data-settings-tab]');
-  if (!tabs || !tabs.length) return;
+function initStatsSubTabs() {
+  var tabs = document.querySelectorAll('[data-stats-tab]');
+  if (!tabs.length) return;
   tabs.forEach(function(btn) {
-    if (btn._bound) return;
-    btn._bound = true;
+    if (btn._statsBound) return;
+    btn._statsBound = true;
     btn.addEventListener('click', function() {
-      switchSettingsTab(btn.dataset.settingsTab || 'main');
+      switchStatsTab(this.dataset.statsTab);
     });
   });
-  var hasActive = document.querySelector('[data-settings-tab].active');
-  if (!hasActive) switchSettingsTab('main');
 }
 
-function switchSettingsTab(name) {
-  var tabName = name || 'main';
-  document.querySelectorAll('[data-settings-tab]').forEach(function(btn) {
-    btn.classList.toggle('active', btn.dataset.settingsTab === tabName);
+function switchStatsTab(name) {
+  document.querySelectorAll('[data-stats-tab]').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.statsTab === name);
   });
-  var mainPanel = document.getElementById('settings-panel-main');
-  var legendPanel = document.getElementById('settings-panel-legend');
-  if (mainPanel) mainPanel.classList.toggle('active', tabName === 'main');
-  if (legendPanel) legendPanel.classList.toggle('active', tabName === 'legend');
+  // Управляем видимостью через CSS-класс active (не style.display)
+  document.querySelectorAll('.stats-subpanel').forEach(function(panel) {
+    panel.classList.remove('active');
+  });
+  var activePanel = document.getElementById('stats-panel-' + name);
+  if (activePanel) activePanel.classList.add('active');
+
+  if (name === 'history' && typeof initHistoryTab === 'function') {
+    initHistoryTab();
+  }
+  if (name === 'ditches' && typeof initDitchStatsTab === 'function') {
+    initDitchStatsTab();
+  }
 }
 
-function renderSettingsColors() {
-  if (typeof MapModule === 'undefined') return;
-  var cfg = MapModule.getStyleConfig() || {};
-  var statusColors = cfg.statusColors || {};
-  var domainColors = cfg.domainColors || {};
-  function bindColor(id, val) {
-    var el = document.getElementById(id);
-    if (el) el.value = val || '#888888';
+// ── Темы сайта ────────────────────────────────────────────
+function applyTheme(theme, btn) {
+  var html = document.documentElement;
+  if (theme === 'default') {
+    html.removeAttribute('data-theme');
+  } else {
+    html.setAttribute('data-theme', theme);
   }
-  function bindSwatch(inputId, swatchId) {
-    var input = document.getElementById(inputId);
-    var swatch = document.getElementById(swatchId);
-    if (!input || !swatch) return;
-    swatch.style.background = input.value || '#888888';
-    if (!input._swatchBound) {
-      input._swatchBound = true;
-      input.addEventListener('input', function() {
-        swatch.style.background = input.value || '#888888';
-      });
+  try { localStorage.setItem('app-theme', theme); } catch(e) {}
+
+  // Подсвечиваем активную кнопку
+  document.querySelectorAll('.theme-btn').forEach(function(b) {
+    b.classList.toggle('active', b === btn || b.dataset.theme === theme);
+  });
+}
+
+function initThemePanel() {
+  // Вставляем шаблон панели тем
+  var tpl = document.getElementById('theme-panel-tpl');
+  var settingsMain = document.getElementById('settings-section-main') ||
+                     document.querySelector('[data-settings-tab-content="main"]');
+  if (tpl && !document.getElementById('settings-section-theme')) {
+    var container = document.querySelector('.settings-subtab-content') ||
+                    document.querySelector('#page-settings > .card') ||
+                    document.getElementById('page-settings');
+    if (container) {
+      var node = tpl.content.cloneNode(true);
+      container.appendChild(node);
     }
   }
-  bindColor('set-status-new', statusColors['Новая']);
-  bindColor('set-status-active', statusColors['Активная']);
-  bindColor('set-status-fading', statusColors['Иссякает']);
-  bindColor('set-status-dry', statusColors['Пересохла']);
-  bindColor('set-intensity-color', cfg.intensityColor);
-  bindColor('set-domain-1', domainColors['Domen-1']);
-  bindColor('set-domain-2', domainColors['Domen-2']);
-  bindColor('set-domain-3', domainColors['Domen-3']);
-  bindColor('set-domain-4', domainColors['Domen-4']);
-  bindColor('set-domain-5', domainColors['Domen-5']);
-  bindSwatch('set-status-new', 'swatch-status-new');
-  bindSwatch('set-status-active', 'swatch-status-active');
-  bindSwatch('set-status-fading', 'swatch-status-fading');
-  bindSwatch('set-status-dry', 'swatch-status-dry');
-  bindSwatch('set-intensity-color', 'swatch-intensity');
-  bindSwatch('set-domain-1', 'swatch-domain-1');
-  bindSwatch('set-domain-2', 'swatch-domain-2');
-  bindSwatch('set-domain-3', 'swatch-domain-3');
-  bindSwatch('set-domain-4', 'swatch-domain-4');
-  bindSwatch('set-domain-5', 'swatch-domain-5');
-
-  var btnStatus = document.getElementById('btn-save-status-colors');
-  if (btnStatus && !btnStatus._bound) {
-    btnStatus._bound = true;
-    btnStatus.addEventListener('click', function() {
-      var patch = {
-        statusColors: {
-          'Новая': getField('set-status-new'),
-          'Активная': getField('set-status-active'),
-          'Иссякает': getField('set-status-fading'),
-          'Искакает': getField('set-status-fading'),
-          'Пересохла': getField('set-status-dry'),
-        },
-        intensityColor: getField('set-intensity-color'),
-        simpleColor: getField('set-intensity-color'),
-        combinedBaseColor: getField('set-intensity-color'),
-      };
-      applyMapStylePatch(patch);
-      var msg = document.getElementById('map-color-save-msg');
-      if (msg) msg.textContent = '✅ Цвета статусов сохранены';
-    });
-  }
-  var btnDomain = document.getElementById('btn-save-domain-colors');
-  if (btnDomain && !btnDomain._bound) {
-    btnDomain._bound = true;
-    btnDomain.addEventListener('click', function() {
-      var patch = {
-        domainColors: {
-          'Domen-1': getField('set-domain-1'),
-          'Domen-2': getField('set-domain-2'),
-          'Domen-3': getField('set-domain-3'),
-          'Domen-4': getField('set-domain-4'),
-          'Domen-5': getField('set-domain-5'),
-        },
-      };
-      applyMapStylePatch(patch);
-      var msg = document.getElementById('map-domain-save-msg');
-      if (msg) msg.textContent = '✅ Цвета доменов сохранены';
+  // Восстанавливаем сохранённую тему
+  var saved = '';
+  try { saved = localStorage.getItem('app-theme') || ''; } catch(e) {}
+  if (saved) applyTheme(saved, null);
+  else {
+    document.querySelectorAll('.theme-btn').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.theme === 'default');
     });
   }
 }
 
-function applyMapStylePatch(patch) {
-  if (typeof MapModule === 'undefined') return;
-  var current = getSavedMapStyleSettings();
-  var merged = deepMerge(current, patch || {});
-  if (merged.intensityColor && !merged.intensityColors) {
-    merged.intensityColors = { marker: merged.intensityColor };
-  }
-  if (merged.intensityColors && merged.intensityColors.marker) {
-    merged.intensityColor = merged.intensityColors.marker;
-  }
-  MapModule.setStyleConfig(merged);
-  if (typeof Domens !== 'undefined' && Domens.setColors && merged.domainColors) {
-    Domens.setColors(merged.domainColors);
-  }
-  localStorage.setItem(MAP_STYLE_STORAGE_KEY, JSON.stringify(merged));
-  renderMapModeLegend();
-  updateMapLegendPoints();
-  if (_mapSchemeImg) redrawMap();
-}
-
-function getSavedMapStyleSettings() {
-  try {
-    var raw = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch(e) {
-    return {};
-  }
-}
-
-function deepMerge(target, patch) {
-  var out = JSON.parse(JSON.stringify(target || {}));
-  Object.keys(patch || {}).forEach(function(k) {
-    if (patch[k] && typeof patch[k] === 'object' && !Array.isArray(patch[k])) {
-      out[k] = deepMerge(out[k] || {}, patch[k]);
-    } else {
-      out[k] = patch[k];
-    }
-  });
-  return out;
-}
-
-function renderSettingsSchemes() {
-  var weekEl = document.getElementById('settings-week-key');
-  if (weekEl) weekEl.textContent = Schemes.formatWeekKey(Schemes.currentWeekKey());
-  var container = document.getElementById('settings-schemes-list');
-  var activeEl = document.getElementById('settings-active-scheme');
-  var currentWeekStatusEl = document.getElementById('settings-current-week-status');
-  if (!container) return;
-  var schemes = Schemes.getList().slice().sort(function(a, b) {
-    var aW = a.weekKey || '';
-    var bW = b.weekKey || '';
-    if (aW !== bW) return aW > bW ? -1 : 1;
-    var aAt = a.uploadedAt || '';
-    var bAt = b.uploadedAt || '';
-    return aAt > bAt ? -1 : (aAt < bAt ? 1 : 0);
-  });
-  var current = Schemes.currentWeekKey();
-  var activeScheme = Schemes.getCurrent();
-  var currentWeekScheme = Schemes.getByWeek(current);
-  if (!schemes.length) {
-    container.innerHTML = '<p class="form-hint">Схем пока нет</p>';
-    if (activeEl) activeEl.textContent = '';
-    if (currentWeekStatusEl) currentWeekStatusEl.textContent = 'Статус текущей недели: схема не загружена';
-    return;
-  }
-  if (currentWeekStatusEl) {
-    if (currentWeekScheme) {
-      currentWeekStatusEl.textContent = 'Статус текущей недели: схема загружена';
-    } else if (activeScheme) {
-      currentWeekStatusEl.textContent = 'Статус текущей недели: нет, используется ' + Schemes.formatWeekKey(activeScheme.weekKey);
-    } else {
-      currentWeekStatusEl.textContent = 'Статус текущей недели: схема не загружена';
-    }
-  }
-  if (activeEl) {
-    if (activeScheme) {
-      var currentHit = activeScheme.weekKey === current;
-      activeEl.textContent = 'Активная схема: ' + Schemes.formatWeekKey(activeScheme.weekKey) +
-        (currentHit ? ' (текущая неделя)' : ' (последняя доступная)');
-    } else {
-      activeEl.textContent = '';
-    }
-  }
-  var html = '';
-  for (var i = 0; i < schemes.length; i++) {
-    var s = schemes[i];
-    var label = s.weekKey ? Schemes.formatWeekKey(s.weekKey) : 'Без недели';
-    html += '<div class="scheme-item">';
-    html += '<div><div class="scheme-item__week">' + label + '</div>';
-    html += '<div class="scheme-item__date">' + (s.uploadedAt ? formatDate(s.uploadedAt) : '—') + '</div></div>';
-    if (s.weekKey === current) html += '<span class="scheme-item__current">✅ Текущая</span>';
-    else if (activeScheme && s.weekKey === activeScheme.weekKey) html += '<span class="scheme-item__current">📌 Активная</span>';
-    html += '</div>';
-  }
-}
-
-function uploadScheme() {
-  var fileInput = document.getElementById('scheme-file');
-  var statusEl  = document.getElementById('scheme-upload-status');
-  var file = fileInput && fileInput.files && fileInput.files[0];
-  if (!file) { alert('Выберите файл схемы'); return; }
-  var weekKey = Schemes.currentWeekKey();
-  var uploadBtn = document.getElementById('btn-upload-scheme');
-  if (statusEl) statusEl.textContent = '⏳ Загрузка...';
-  if (uploadBtn) uploadBtn.disabled = true;
-  Schemes.upload(file, weekKey, Storage.getDeviceId()).then(function() {
-    if (statusEl) statusEl.textContent = '✅ Схема загружена';
-    if (fileInput) fileInput.value = '';
-    var preview = document.getElementById('scheme-preview');
-    if (preview) preview.innerHTML = '';
-    return Schemes.load();
-  }).then(function() {
-    renderSettingsSchemes();
-    _mapSchemeImg = null;
-    if (AppState.currentTab === 'map') renderMap();
-  }).catch(function(err) {
-    if (statusEl) statusEl.textContent = '❌ ' + err.message;
-  }).then(function() {
-    if (uploadBtn) uploadBtn.disabled = false;
-  });
-}
-
-function loadMapStyleSettings() {
-  try {
-    var raw = localStorage.getItem(MAP_STYLE_STORAGE_KEY);
-    if (!raw || typeof MapModule === 'undefined') return;
-    var cfg = JSON.parse(raw);
-    if (cfg.intensityColors && cfg.intensityColors.marker && !cfg.intensityColor) {
-      cfg.intensityColor = cfg.intensityColors.marker;
-    }
-    MapModule.setStyleConfig(cfg);
-    if (typeof Domens !== 'undefined' && Domens.setColors && cfg.domainColors) {
-      Domens.setColors(cfg.domainColors);
-    }
-  } catch(e) {
-    console.warn('Не удалось загрузить настройки цветов карты:', e);
-  }
-}
-
-// ── GPS для формы ────────────────────────────────────────
-function getGPSForForm(prefix) {
-  if (!navigator.geolocation) { alert('GPS не поддерживается'); return; }
-  var btnId = (prefix === 'f') ? 'btn-gps' : (prefix + '-btn-gps');
-  var btn   = document.getElementById(btnId);
-  if (btn) { btn.textContent = '⏳...'; btn.disabled = true; }
-  navigator.geolocation.getCurrentPosition(function(pos) {
-    var lat = pos.coords.latitude;
-    var lon = pos.coords.longitude;
-    setField(prefix + '-lat', lat.toFixed(7));
-    setField(prefix + '-lon', lon.toFixed(7));
-    // Пересчитываем в локальные (X↔Y переставлены для отображения)
-    if (typeof MapModule !== 'undefined') {
-      var sk = MapModule.wgs84ToXY(lat, lon);
-      setField(prefix + '-xlocal', sk.x.toFixed(4));
-      setField(prefix + '-ylocal', sk.y.toFixed(4));
-      var info = document.getElementById(prefix + '-map-coord-info');
-      if (info) info.textContent = 'X: ' + sk.x.toFixed(4) + '  Y: ' + sk.y.toFixed(4) + ' (из GPS)';
-    }
-    if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
-  }, function(err) {
-    alert('GPS: ' + err.message);
-    if (btn) { btn.textContent = '📍 GPS'; btn.disabled = false; }
-  }, { enableHighAccuracy: true, timeout: 15000 });
-}
-
-// При изменении lat/lon вручную — пересчитываем X/Y
-function recalcLocalCoords(prefix) {
-  var lat = parseFloatOrNull(getField(prefix + '-lat'));
-  var lon = parseFloatOrNull(getField(prefix + '-lon'));
-  if (lat && lon && typeof MapModule !== 'undefined') {
-    var sk = MapModule.wgs84ToXY(lat, lon);
-    setField(prefix + '-xlocal', sk.x.toFixed(4));
-    setField(prefix + '-ylocal', sk.y.toFixed(4));
-    var info = document.getElementById(prefix + '-map-coord-info');
-    if (info) info.textContent = 'X: ' + sk.x.toFixed(4) + '  Y: ' + sk.y.toFixed(4);
-  }
-}
-
-// ── Утилиты ───────────────────────────────────────────────
-function readFormFields(prefix) {
-  return {
-    pointNumber: getField(prefix + '-num'),
-    worker:      getField(prefix + '-worker'),
-    lat:         parseFloatOrNull(getField(prefix + '-lat')),
-    lon:         parseFloatOrNull(getField(prefix + '-lon')),
-    xLocal:      parseFloatOrNull(getField(prefix + '-xlocal')),
-    yLocal:      parseFloatOrNull(getField(prefix + '-ylocal')),
-    intensity:   getField(prefix + '-intensity'),
-    flowRate:    parseFloatOrNull(getField(prefix + '-flowrate')),
-    waterColor:  getField(prefix + '-color'),
-    wall:        getField(prefix + '-wall'),
-    domain:      getField(prefix + '-domain'),
-    status:      getField(prefix + '-status') || 'Новая',
-    comment:     getField(prefix + '-comment'),
-  };
-}
-function setField(id, v) {
-  var el = document.getElementById(id);
-  if (el) el.value = (v != null) ? v : '';
-}
-function getField(id) {
-  var el = document.getElementById(id);
-  return el ? el.value.trim() : '';
-}
-function parseFloatOrNull(v) {
-  if (v == null || String(v).trim() === '') return null;
-  var n = parseFloat(String(v).replace(',', '.'));
-  return isNaN(n) ? null : n;
-}
-function lpsToM3h(lps) {
-  var n = parseFloat(lps);
-  if (isNaN(n)) return null;
-  return n * 3.6;
-}
-function formatFlowBothUnits(lps) {
-  var n = parseFloat(lps);
-  if (isNaN(n)) return '—';
-  var m3h = lpsToM3h(n);
-  return n.toFixed(2) + ' л/с (' + m3h.toFixed(2) + ' м³/ч)';
-}
-function initials(name) {
-  return (name || '').split(' ').map(function(s) { return s[0] || ''; }).join('').slice(0, 2).toUpperCase();
-}
-function escAttr(s) {
-  return (s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-}
-function formatCoord(v) {
-  if (v == null || v === '') return '—';
-  var n = parseFloat(v);
-  return isNaN(n) ? String(v) : n.toFixed(4);
-}
-
-function formatDate(iso) {
-  if (!iso) return '—';
-  try {
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso).slice(0, 10) || '—';
-    return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-  } catch(e) { return '—'; }
-}
+// Инициализируем тему при загрузке
+document.addEventListener('DOMContentLoaded', function() {
+  initThemePanel();
+});

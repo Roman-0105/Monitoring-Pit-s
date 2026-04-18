@@ -41,11 +41,13 @@ var MapModule = (function() {
     zoom: { min: 0.35, max: 6 },
     labels: { showFromScale: 0.85 },
     statusColors: {
-      'Новая':     '#1a73e8',
-      'Активная':  '#34a853',
-      'Иссякает':  '#f9ab00',
-      'Искакает':  '#f9ab00', // поддержка опечатки
-      'Пересохла': '#ea4335',
+      'Новая':      '#1a73e8',
+      'Активная':   '#34a853',
+      'Иссякает':   '#f9ab00',
+      'Искакает':   '#f9ab00', // поддержка опечатки
+      'Пересохла':  '#ea4335',
+      'Паводковая': '#7c3aed',
+      'Перелив':    '#0891b2',
     },
     intensitySizes: {
       'Слабая (капёж)': 4.5,
@@ -307,6 +309,111 @@ var MapModule = (function() {
     return null;
   }
 
+  // ── Рендер канав (квадратные маркеры) ──────────────────
+  function drawDitches(ctx, ditches, imgW, imgH, viewScale) {
+    if (!ditches || !ditches.length) return;
+    var scale = normalizeScale(viewScale);
+    var sz = clamp(14 / scale, 8, 18); // полуразмер квадрата
+
+    var statusColors = {
+      'Активная':  '#4090e8',
+      'Новая':     '#40b8ff',
+      'Пересохла': '#e8a030',
+      'Заилилась': '#8060c0',
+    };
+
+    for (var i = 0; i < ditches.length; i++) {
+      var d = ditches[i];
+      // Предпочитаем локальные координаты с карты, иначе GPS
+      var posX, posY;
+      if (d.xLocal != null && d.yLocal != null) {
+        posX = d.xLocal; posY = d.yLocal;
+      } else if (d.lat != null && d.lon != null) {
+        var xy = wgs84ToXY(d.lat, d.lon);
+        posX = xy.x; posY = xy.y;
+      } else {
+        continue;
+      }
+      var pos = xyToPixel(posX, posY, imgW, imgH);
+      var col = statusColors[d.status] || '#4090e8';
+
+      // Тень
+      ctx.shadowColor = 'rgba(0,0,0,0.35)';
+      ctx.shadowBlur  = 6;
+
+      // Квадрат с скруглёнными углами
+      var r = Math.max(2, sz * 0.28); // радиус скругления
+      var x = pos.px - sz, y = pos.py - sz, w = sz*2, h = sz*2;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x+w, y, x+w, y+r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x+w, y+h, x+w-r, y+h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y+h, x, y+h-r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x+r, y, r);
+      ctx.closePath();
+
+      // Заливка с градиентом
+      var grd = ctx.createLinearGradient(pos.px-sz, pos.py-sz, pos.px+sz, pos.py+sz);
+      grd.addColorStop(0, col);
+      grd.addColorStop(1, col + 'bb');
+      ctx.fillStyle = grd;
+      ctx.fill();
+
+      ctx.shadowColor = 'transparent';
+      ctx.shadowBlur  = 0;
+
+      // Обводка
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth   = 1.8;
+      ctx.stroke();
+
+      // Иконка волны внутри
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.font = 'bold ' + Math.round(sz * 0.95) + 'px sans-serif';
+      ctx.textAlign    = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('≈', pos.px, pos.py + 0.5);
+
+      // Подпись названия
+      if (scale >= 1.0) {
+        var fs = clamp(10 / scale, 7, 13);
+        ctx.font = '600 ' + fs.toFixed(1) + 'px sans-serif';
+        ctx.textBaseline = 'bottom';
+        // Тень текста
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillText(d.ditchName || '', pos.px + 1, pos.py - sz - 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(d.ditchName || '', pos.px, pos.py - sz - 3);
+      }
+    }
+  }
+
+  // ── Hit-test для канав ───────────────────────────────────
+  function findDitchAt(imgX, imgY, ditches, imgW, imgH, viewScale) {
+    if (!ditches || !ditches.length) return null;
+    var scale = normalizeScale(viewScale);
+    var sz    = clamp(14 / scale, 8, 18) + 4; // +4 для удобства клика
+    for (var i = 0; i < ditches.length; i++) {
+      var d = ditches[i];
+      var fx, fy;
+      if (d.xLocal != null && d.yLocal != null) {
+        fx = d.xLocal; fy = d.yLocal;
+      } else if (d.lat != null && d.lon != null) {
+        var fxy = wgs84ToXY(d.lat, d.lon);
+        fx = fxy.x; fy = fxy.y;
+      } else {
+        continue;
+      }
+      var pos = xyToPixel(fx, fy, imgW, imgH);
+      if (Math.abs(imgX - pos.px) <= sz && Math.abs(imgY - pos.py) <= sz) return d;
+    }
+    return null;
+  }
+
   return {
     BOUNDS:        BOUNDS,
     STATUS_COLORS: STATUS_COLORS,
@@ -316,6 +423,8 @@ var MapModule = (function() {
     xyToWgs84:     xyToWgs84,
     drawPoints:    drawPoints,
     findPointAt:   findPointAt,
+    drawDitches:   drawDitches,
+    findDitchAt:   findDitchAt,
     getIntensityRadius: getIntensityRadius,
     getMarkerStyle: getMarkerStyle,
     setMarkerMode: setMarkerMode,

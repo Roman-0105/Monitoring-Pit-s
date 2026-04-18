@@ -10,6 +10,8 @@ const Storage = (() => {
     QUEUE:     'gm_queue',
     DEVICE_ID: 'gm_device_id',
     SCHEMES:   'gm_schemes',
+    HORIZONS:  'gm_horizons',
+    SYNC_INTERVAL: 'gm_sync_interval',
   };
 
   // ── deviceId ─────────────────────────────────────────────
@@ -61,6 +63,25 @@ const Storage = (() => {
 
   function getCachedWorkers() {
     return load(KEYS.WORKERS) || [];
+  }
+
+  // ── horizons (list of bench levels) ─────────────────────
+
+  function getSyncInterval() {
+    // Возвращает интервал в мс, по умолчанию 30 секунд
+    var v = load(KEYS.SYNC_INTERVAL);
+    return v ? Number(v) : 30000;
+  }
+  function saveSyncInterval(ms) {
+    save(KEYS.SYNC_INTERVAL, ms);
+  }
+
+  function getHorizons() {
+    return load(KEYS.HORIZONS) || [];
+  }
+
+  function saveHorizons(list) {
+    save(KEYS.HORIZONS, list);
   }
 
   // ── schemes cache ─────────────────────────────────────────
@@ -123,6 +144,8 @@ const Storage = (() => {
     cachePoints, getCachedPoints,
     cacheWorkers, getCachedWorkers,
     cacheSchemes, getCachedSchemes,
+    getHorizons, saveHorizons,
+    getSyncInterval, saveSyncInterval,
     getQueue, addToQueue, removeFromQueue, clearQueue,
     clearAll,
   };

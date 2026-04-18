@@ -1,6 +1,12 @@
 /**
  * points.js — CRUD точек + офлайн-очередь.
  * Источник истины: Google Sheets.
+ *
+ * ИСПРАВЛЕНИЯ v2:
+ *  - makePoint: wgs84ToSK42 → wgs84ToXY (имя метода MapModule)
+ *  - makePoint: guard typeof MapModule проверяется корректно
+ *
+ * v3: добавлено поле monitoringDate (дата проведения мониторинга, YYYY-MM-DD)
  */
 
 const Points = (() => {
@@ -17,32 +23,47 @@ const Points = (() => {
 
   function makePoint(data) {
     const now = new Date().toISOString();
+
+    // Вычисляем xLocal / yLocal из GPS только если метод реально существует
+    let xLocal = data.xLocal != null ? data.xLocal : null;
+    let yLocal = data.yLocal != null ? data.yLocal : null;
+
+    if ((xLocal == null || yLocal == null) && data.lat && data.lon &&
+        typeof MapModule !== 'undefined' && typeof MapModule.wgs84ToXY === 'function') {
+      const sk = MapModule.wgs84ToXY(data.lat, data.lon);
+      if (xLocal == null) xLocal = sk.x;
+      if (yLocal == null) yLocal = sk.y;
+    }
+
+    // monitoringDate — дата мониторинга в формате YYYY-MM-DD
+    // Если не передана — ставим сегодня
+    const today = now.slice(0, 10);
+
     return {
-      id:          data.id          || makeId(),
-      version:     data.version     || 1,
-      deviceId:    data.deviceId    || Storage.getDeviceId(),
-      syncStatus:  data.syncStatus  || 'pending',
-      syncedAt:    data.syncedAt    || null,
-      createdAt:   data.createdAt   || now,
-      updatedAt:   data.updatedAt   || now,
-      pointNumber: data.pointNumber || '',
-      worker:      data.worker      || '',
-      lat:         data.lat         != null ? data.lat   : null,
-      lon:         data.lon         != null ? data.lon   : null,
-      xLocal:      data.xLocal      != null ? data.xLocal : (
-                     data.lat && data.lon && typeof MapModule !== 'undefined'
-                     ? MapModule.wgs84ToSK42(data.lat, data.lon).x : null),
-      yLocal:      data.yLocal      != null ? data.yLocal : (
-                     data.lat && data.lon && typeof MapModule !== 'undefined'
-                     ? MapModule.wgs84ToSK42(data.lat, data.lon).y : null),
-      intensity:   data.intensity   || '',
-      flowRate:    data.flowRate    != null ? data.flowRate : null,
-      waterColor:  data.waterColor  || '',
-      wall:        data.wall        || '',
-      domain:      data.domain      || '',
-      status:      data.status      || 'Новая',
-      comment:     data.comment     || '',
-      photoUrls:   data.photoUrls   || [],
+      id:             data.id             || makeId(),
+      version:        data.version        || 1,
+      deviceId:       data.deviceId       || Storage.getDeviceId(),
+      syncStatus:     data.syncStatus     || 'pending',
+      syncedAt:       data.syncedAt       || null,
+      createdAt:      data.createdAt      || now,
+      updatedAt:      data.updatedAt      || now,
+      monitoringDate: data.monitoringDate || today,
+      pointNumber:    data.pointNumber    || '',
+      worker:         data.worker         || '',
+      lat:            data.lat            != null ? data.lat  : null,
+      lon:            data.lon            != null ? data.lon  : null,
+      xLocal:         xLocal,
+      yLocal:         yLocal,
+      intensity:      data.intensity      || '',
+      flowRate:       data.flowRate       != null ? data.flowRate : null,
+      waterColor:     data.waterColor     || '',
+      wall:           data.wall           || '',
+      domain:         data.domain         || '',
+      status:         data.status         || 'Новая',
+      measureMethod:  data.measureMethod  || '',
+      horizon:        data.horizon        || '',
+      comment:        data.comment        || '',
+      photoUrls:      data.photoUrls      || [],
     };
   }
 
@@ -178,14 +199,14 @@ const Points = (() => {
         sent++;
       } catch (err) {
         Diagnostics.setError('sync', 'Очередь (' + item.action + '): ' + err.message);
-        break; // останавливаемся при первой ошибке
+        break;
       }
     }
 
     Diagnostics.set('queueSize', Storage.getQueue().length);
     if (sent > 0) {
       Diagnostics.set('lastSyncAt', new Date().toISOString());
-      await load(); // перечитываем после отправки очереди
+      await load();
     }
   }
 

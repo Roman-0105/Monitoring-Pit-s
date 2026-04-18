@@ -40,6 +40,90 @@ html, body { margin: 0; padding: 0; height: 100%; }
   --tr: 180ms cubic-bezier(.2,.7,.2,1);
 }
 
+/* ══ ТЕМЫ САЙТА ═══════════════════════════════════════════ */
+
+/* Тема: Синяя (Blue Steel) */
+[data-theme="blue"] {
+  --bg-0: #0a0e1a;
+  --bg-1: #0d1526;
+  --bg-2: #111d33;
+  --bg-3: #162140;
+  --glass: rgba(13, 21, 38, 0.75);
+  --glass-strong: rgba(11, 18, 33, 0.92);
+  --gold: #4f9eff;
+  --gold-2: #2f7de8;
+  --gold-glow: rgba(79, 158, 255, 0.25);
+  --txt-1: #e8f0ff;
+  --txt-2: #b8c8e8;
+  --txt-3: #7a92b8;
+  --line: rgba(79, 158, 255, 0.15);
+  --line-2: rgba(79, 158, 255, 0.08);
+  --blue: #6ab0ff;
+}
+
+/* Тема: Тёмно-зелёная (Mining) */
+[data-theme="mining"] {
+  --bg-0: #0b1209;
+  --bg-1: #0f1a0c;
+  --bg-2: #152210;
+  --bg-3: #1c2c16;
+  --glass: rgba(15, 26, 12, 0.78);
+  --glass-strong: rgba(11, 18, 9, 0.93);
+  --gold: #7ec850;
+  --gold-2: #5aa030;
+  --gold-glow: rgba(126, 200, 80, 0.22);
+  --txt-1: #e8f5e0;
+  --txt-2: #b8d4a8;
+  --txt-3: #7a9868;
+  --line: rgba(126, 200, 80, 0.15);
+  --line-2: rgba(126, 200, 80, 0.07);
+  --blue: #50c878;
+}
+
+/* Тема: Светлая (Day) */
+[data-theme="light"] {
+  --bg-0: #f0f2f5;
+  --bg-1: #f8f9fb;
+  --bg-2: #ffffff;
+  --bg-3: #eef0f4;
+  --glass: rgba(248, 249, 251, 0.85);
+  --glass-strong: rgba(255, 255, 255, 0.95);
+  --gold: #d4840a;
+  --gold-2: #a86005;
+  --gold-glow: rgba(212, 132, 10, 0.2);
+  --txt-1: #1a1f2e;
+  --txt-2: #4a5568;
+  --txt-3: #718096;
+  --line: rgba(0, 0, 0, 0.1);
+  --line-2: rgba(0, 0, 0, 0.05);
+  --ok: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --blue: #2563eb;
+  --shadow: 0 8px 24px rgba(0,0,0,0.12);
+}
+[data-theme="light"] body { color: var(--txt-1); background: var(--bg-0); }
+
+/* Тема: Антрацит (Anthracite) */
+[data-theme="anthracite"] {
+  --bg-0: #1a1a1a;
+  --bg-1: #222222;
+  --bg-2: #2c2c2c;
+  --bg-3: #363636;
+  --glass: rgba(34, 34, 34, 0.82);
+  --glass-strong: rgba(26, 26, 26, 0.94);
+  --gold: #e8b84b;
+  --gold-2: #c89520;
+  --gold-glow: rgba(232, 184, 75, 0.22);
+  --txt-1: #f0f0f0;
+  --txt-2: #c0c0c0;
+  --txt-3: #888888;
+  --line: rgba(255,255,255,0.09);
+  --line-2: rgba(255,255,255,0.05);
+  --blue: #5b9cf6;
+}
+
+
 body {
   font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--txt-1);
@@ -74,11 +158,12 @@ body {
 }
 
 .brand-block {
-  min-width: 280px;
-  padding: 0 20px;
+  min-width: 0;
+  flex-shrink: 0;
+  padding: 0 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   border-right: 1px solid var(--line-2);
   background: linear-gradient(90deg, rgba(242,166,54,0.07), rgba(242,166,54,0.0));
 }
@@ -102,10 +187,13 @@ body {
   align-items: center;
   gap: 6px;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
   padding: 0 10px;
   scrollbar-width: none;
 }
 .tab-bar::-webkit-scrollbar { display: none; }
+.tab-btn { scroll-snap-align: start; }
 
 .tab-btn {
   height: 44px;
@@ -374,6 +462,7 @@ body {
   color: var(--txt-2);
   font-size: 13px;
 }
+.pc-row--muted { font-size: 11px; color: var(--txt-3); min-height: 18px; }
 .pc-lbl { width: 16px; color: #aeb8c8; }
 .pc-coords { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--txt-3); }
 .pc-tag {
@@ -896,3 +985,414 @@ body {
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .stats-charts-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Фильтр дат — чекбоксы ──────────────────────────────── */
+.date-filter-wrap {
+  position: relative;
+  display: inline-block;
+}
+.date-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--card-bg, #1e2530);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt-2);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.date-filter-btn:hover { border-color: var(--blue); color: var(--txt-1); }
+.date-filter-btn.has-selection { border-color: var(--blue); color: var(--blue); background: rgba(26,115,232,.08); }
+.date-filter-btn .df-arrow { font-size: 10px; margin-left: 2px; }
+.date-filter-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--card-bg, #1e2530);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  z-index: 200;
+  padding: 6px 0;
+}
+.date-filter-dropdown.open { display: block; }
+.df-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--txt-2);
+  transition: background .12s;
+}
+.df-item:hover { background: rgba(255,255,255,.05); color: var(--txt-1); }
+.df-item input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; flex-shrink: 0; }
+.df-item.df-all { border-bottom: 1px solid var(--line-2); margin-bottom: 4px; color: var(--txt-3); font-size: 12px; }
+.df-divider { height: 1px; background: var(--line-2); margin: 4px 0; }
+
+/* ── Индикатор syncStatus на карточке точки ─────────────── */
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 22px;
+  flex-shrink: 0;
+  flex-grow: 0;
+  margin-left: auto;
+  cursor: default;
+  position: relative;
+}
+.sync-ok {
+  background: rgba(52, 168, 83, 0.18);
+  color: #34a853;
+  border: 1.5px solid rgba(52, 168, 83, 0.4);
+}
+.sync-err {
+  background: rgba(234, 67, 53, 0.18);
+  color: #ea4335;
+  border: 1.5px solid rgba(234, 67, 53, 0.4);
+}
+.sync-wait {
+  background: rgba(251, 188, 5, 0.15);
+  color: #f9ab00;
+  border: 1.5px solid rgba(251, 188, 5, 0.4);
+  font-size: 13px;
+}
+
+/* ── График дебита на карточке точки ─────────────────────── */
+.point-chart-wrap {
+  border-top: 1px solid rgba(255,255,255,.05);
+  animation: chart-slide-in .18s ease;
+}
+@keyframes chart-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.btn-chart {
+  margin-left: auto;
+  padding: 4px 8px !important;
+  font-size: 14px !important;
+  min-width: 32px;
+  transition: background .15s, color .15s;
+}
+
+/* ── Подвкладки аналитики ───────────────────────────────── */
+.stats-subpanel { display: none; }
+.stats-subpanel.active { display: block; }
+@media (max-width: 640px) {
+  #stats-panel-history > div[style*="grid-template-columns"] {
+    display: block !important;
+  }
+  #stats-panel-history > div[style*="grid-template-columns"] > div {
+    margin-bottom: 12px;
+  }
+}
+
+/* ── Менеджер алиасов (Настройки → Связать точки) ───────── */
+.alias-group-card {
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.alias-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.alias-group-icon { font-size: 15px; flex-shrink: 0; }
+.alias-group-name { font-size: 14px; font-weight: 600; color: var(--txt-1); flex: 1; }
+.alias-group-nums { display: flex; flex-wrap: wrap; gap: 5px; }
+.alias-num-tag {
+  background: rgba(26,115,232,.15);
+  color: #1a73e8;
+  border-radius: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.alias-new-form {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.alias-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.alias-cb-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--txt-2);
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.alias-cb-label:hover { background: rgba(26,115,232,.1); border-color: #1a73e8; }
+.alias-cb-label input { accent-color: #1a73e8; cursor: pointer; }
+
+/* ── Поиск по точкам ─────────────────────────────────────── */
+.points-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.points-search-icon {
+  position: absolute;
+  left: 10px;
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 1;
+}
+.points-search-input {
+  width: 100%;
+  padding: 9px 36px 9px 34px;
+  background: var(--card-bg, #1e2530);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--txt-1);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s;
+  box-sizing: border-box;
+}
+.points-search-input:focus {
+  border-color: var(--blue, #1a73e8);
+}
+.points-search-input::placeholder { color: var(--txt-3); }
+.points-search-clear {
+  position: absolute;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255,255,255,.12);
+  color: var(--txt-3);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background .12s;
+}
+.points-search-clear:hover { background: rgba(255,255,255,.2); color: var(--txt-1); }
+.points-filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Подсветка найденного текста в карточке */
+.search-highlight {
+  background: rgba(26,115,232,.3);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* ── Канава — чекбокс и кнопка ──────────────────────────── */
+.ditch-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.ditch-check { display: none; }
+.ditch-check-ui {
+  width: 36px; height: 20px;
+  border-radius: 10px;
+  background: var(--card-bg2, #1e2535);
+  border: 1px solid var(--line);
+  position: relative;
+  transition: background .2s, border-color .2s;
+  flex-shrink: 0;
+}
+.ditch-check-ui::after {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--txt-3);
+  top: 2px; left: 2px;
+  transition: transform .2s, background .2s;
+}
+.ditch-check:checked + .ditch-check-ui {
+  background: rgba(64,144,232,.25);
+  border-color: rgba(64,144,232,.5);
+}
+.ditch-check:checked + .ditch-check-ui::after {
+  transform: translateX(16px);
+  background: #4090e8;
+}
+
+/* ── Строки глубин в модалке канавы ─────────────────────── */
+.dm-depth-row {
+  display: grid;
+  gap: 6px;
+  align-items: center;
+}
+.dm-pt-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--card-bg2, #1e2535);
+  border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--txt-3);
+  font-weight: 600; flex-shrink: 0;
+}
+.dm-pt-num.hi {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #1a1200;
+}
+.dm-vel-tab.active,
+.dm-unit-btn.active {
+  background: var(--blue, #1a73e8) !important;
+  color: #fff !important;
+  border-color: var(--blue, #1a73e8) !important;
+}
+
+/* ── Кнопки тем ─────────────────────────────────────────── */
+.theme-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px; border-radius: var(--r-sm);
+  border: 2px solid var(--line); background: var(--bg-2);
+  color: var(--txt-2); cursor: pointer; transition: all .2s;
+  font-size: 12px; text-align: center;
+}
+.theme-btn:hover { border-color: var(--gold); color: var(--txt-1); }
+.theme-btn.active { border-color: var(--gold); background: var(--bg-3); color: var(--txt-1); }
+.theme-preview {
+  width: 100%; height: 36px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.1);
+}
+
+/* ── Логотип ─────────────────────────────────────────────── */
+.brand-logo {
+  display: flex; align-items: center;
+  height: 36px; flex-shrink: 0;
+}
+.brand-logo svg { display: block; }
+
+/* ── Панели настроек ─────────────────────────────────────── */
+.settings-panel { display: none; }
+.settings-panel.active { display: block; }
+
+@media (max-width: 480px) {
+  .brand-name { display: none; }
+  .brand-logo img { height: 36px !important; }
+  .brand-block { padding: 0 8px; }
+  .tab-btn { padding: 0 10px; font-size: 12px; white-space: nowrap; }
+}
+
+/* ── Дашборд ─────────────────────────────────────────────── */
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+.dash-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--txt-1);
+  margin-bottom: 3px;
+}
+.dash-sub { font-size: 12px; color: var(--txt-3); }
+
+.dash-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+@media (max-width: 600px) {
+  .dash-kpi-grid { grid-template-columns: 1fr 1fr; }
+}
+.dash-kpi {
+  background: var(--card-bg, #161e2e);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.dash-kpi-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--txt-3);
+  margin-bottom: 4px;
+}
+.dash-kpi-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--blue, #1a73e8);
+  line-height: 1.2;
+}
+.dash-kpi-unit { font-size: 12px; font-weight: 400; color: var(--txt-3); }
+.dash-kpi-sub { font-size: 11px; color: var(--txt-3); margin-top: 3px; }
+
+.dash-alert-row {
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+  color: var(--txt-2);
+  background: var(--card-bg2, rgba(255,255,255,.03));
+}
+.dash-alert-row:last-child { margin-bottom: 0; }
+
+.dash-top-header {
+  display: grid;
+  grid-template-columns: 36px 1fr 56px 24px;
+  gap: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--txt-3);
+  padding: 4px 0 6px;
+  border-bottom: 1px solid var(--line-2);
+  margin-bottom: 2px;
+}
+.dash-top-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 56px 24px;
+  gap: 6px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-2, rgba(255,255,255,.06));
+  font-size: 13px;
+}
+.dash-top-row:last-of-type { border-bottom: none; }
+.dash-top-num { font-weight: 700; color: var(--blue, #1a73e8); font-size: 12px; }
+.dash-top-domain { color: var(--txt-2); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-top-q { font-weight: 600; color: var(--txt-1); text-align: right; }
+.dash-top-trend { text-align: center; font-size: 14px; }
